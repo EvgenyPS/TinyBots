@@ -7,7 +7,7 @@
  */
 
 import { z } from 'zod'
-import { containedPathSchema, idSchema, schemaVersionSchema } from './common.js'
+import { containedPathSchema, idSchema, isSafeDataDir, schemaVersionSchema } from './common.js'
 
 const wakeSchema = z.enum(['mentioned_only'])
 const replySchema = z.enum(['short', 'long'])
@@ -66,7 +66,7 @@ export const configSchema = z.strictObject({
     name: z.string().min(1),
     confirms_merge: z.boolean(),
   }),
-  data_dir: containedPathSchema,
+  data_dir: z.string().refine(isSafeDataDir, 'data_dir не может быть служебным путём'),
   delivery: z.enum(['clipboard', 'queue']),
   bots: z.array(botSchema),
   projects: z.array(projectSchema),

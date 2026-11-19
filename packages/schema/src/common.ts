@@ -47,3 +47,35 @@ export function isContainedPath(value: string): boolean {
 }
 
 export const containedPathSchema = z.string().refine(isContainedPath, 'только относительный путь')
+
+/** Имена устройств Windows. С расширением (CON.txt) это всё ещё устройство. */
+const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/
+
+/**
+ * data_dir — каталог записок, не служебный файл репозитория и не устройство Windows.
+ * Сегмент `.git` или `package.json` (в любом регистре) отклоняем: иначе мастер
+ * положит данные поверх репозитория. CON, NUL, PRN, AUX, COM1–9, LPT1–9 — тоже,
+ * включая `CON.txt` и хвостовые точки.
+ */
+export function isSafeDataDir(value: string): boolean {
+  if (!isContainedPath(value)) {
+    return false
+  }
+  const segments = value.split('/').filter((part) => part.length > 0 && part !== '.')
+  for (const segment of segments) {
+    const cleaned = segment.replace(/[. ]+$/u, '')
+    if (cleaned.length === 0) {
+      return false
+    }
+    const lower = cleaned.toLowerCase()
+    if (lower === '.git' || lower === 'package.json') {
+      return false
+    }
+    const dot = lower.indexOf('.')
+    const stem = dot === -1 ? lower : lower.slice(0, dot)
+    if (stem.length > 0 && RESERVED_DEVICE.test(stem)) {
+      return false
+    }
+  }
+  return true
+}

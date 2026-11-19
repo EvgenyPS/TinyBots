@@ -3,7 +3,7 @@
  * НАЗНАЧЕНИЕ: загрузка config.yaml через схемы пакета.
  * ВХОД: корень репозитория и необязательный относительный путь.
  * ВЫХОД: проверенный конфиг или отказ с файлом, строкой и причиной.
- * Мастер настройки, который создаёт config.yaml, сюда не входит.
+ * Запись config.yaml живёт в setup.ts: этот модуль только читает.
  */
 
 import { loadConfigAt, selectConfigRequest, type ConfigFailure, type LoadedConfig } from './load.js'

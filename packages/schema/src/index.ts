@@ -6,7 +6,7 @@
  * Имена полей — docs/CONTRACT.md. Черновик ARCH с brief/files/result сюда не входит.
  */
 
-export { SCHEMA_VERSION, idSchema, isoSchema } from './common.js'
+export { SCHEMA_VERSION, idSchema, isoSchema, isContainedPath, isSafeDataDir } from './common.js'
 export { configSchema, type LauncherConfig } from './config.js'
 export {
   HEAD_SHA_CHANGE,
