@@ -4,19 +4,21 @@
 
 TinyBots — локальный пульт над ботами. Репозиторий публичный: имена, пути и id задаются конфигом, в git лежат только вымышленные демо-данные. Сервер слушает `127.0.0.1`. Лицензия Apache-2.0.
 
-Пульт этого среза строится из `config.yaml` и записок `status/<bot_id>.json`. Бриф, мерж и мастер настройки ещё не сделаны.
+Пульт строится из `config.yaml` и записок `status/<bot_id>.json`. Мастер настройки пишет свой `config.yaml`, если файла ещё нет.
 
 ## Что в этом дереве
 
 - npm workspaces: `packages/schema`, `apps/server` (Hono), `apps/web` (Vite + React, тёмная оболочка).
-- `npm start` собирает страницу и открывает пульт. Нет своего `config.yaml` — берётся `demo/sets/primary`. Другой набор: `TINYBOTS_CONFIG=demo/sets/beta/config.yaml`.
-- API: `/api/launcher`, `/api/projects`, `/api/roster`, `/api/chats`, `/api/notes`, `/api/tasks`, `/api/sync`. `/api/bots` по-прежнему читает `demo/bots.json`.
+- `npm start` собирает страницу и открывает браузер. Нет своего `config.yaml` — корень открывает мастер. Демо-набор остаётся по `?demo=1`. Другой набор: `TINYBOTS_CONFIG=demo/sets/beta/config.yaml`.
+- API чтения: `/api/launcher`, `/api/projects`, `/api/roster`, `/api/chats`, `/api/notes`, `/api/tasks`, `/api/sync`. `/api/bots` читает `demo/bots.json`.
+- Мастер: `GET /api/setup`, `GET /api/setup/source`, `POST /api/setup`. Семь шагов. Схема zod до записи, файл через временное имя и `rename` (повтор при EPERM, EBUSY, EACCES). `Host` и `Origin` сверяются вместе с портом, нужен токен. Существующий файл не меняется без подтверждения. `demo/` и `config.example.yaml` не перезаписываются.
+- Папка без своего git показывает «вкладка Git будет скрыта».
 - Битый конфиг не роняет процесс: `422` с файлом, строкой и причиной. Время в зоне из конфига. Записка старше `stale_after_hours` — «устарело». Нет файла или он битый — «нет записки». Шапка: «данные на ЧЧ:ММ» по последнему манифесту синка.
-- Запись файла — временный файл и `rename`. HTTP не пишет (405), CSRF будет вместе с первой записью.
-- Пустые проекты, боты и записки: текст и кнопка «Настроить» → `/setup` (заглушка).
-- `npm test` — vitest. `npm run e2e` — Playwright 1.65 по критериям B1–B4 и B12–B16. CI: Node 20/24, Ubuntu и Windows. На Ubuntu браузер ставится `npx playwright install --with-deps chromium` в штатный кэш вне репозитория.
+- Пустые проекты, боты и записки: текст и кнопка «Настроить» → `/setup`.
+- Ручной прогон мастера за 10 минут: `docs/setup-manual.md`.
+- `npm test` — vitest. `npm run e2e` — Playwright 1.65, включая проход мастера. CI: Node 20/24, Ubuntu и Windows.
 - `LICENSE`, `NOTICE`, стоп-лист, gitleaks — как в каркасе.
 
 ## Не в этом дереве
 
-Бриф и доставка (B5–B11), мастер настройки (B17–B19, сейчас заглушка), мерж, SSE, вкладки Git/Файлы/Документация, эффекты орбиты.
+Экран брифа (модуль `briefs` всё ещё заглушка), мерж, SSE, вкладки Git/Файлы/Документация, эффекты орбиты.

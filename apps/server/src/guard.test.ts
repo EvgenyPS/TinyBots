@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { hostnameFromHostHeader, originAllowed, requestAllowed } from './guard.js'
+import { hostnameFromHostHeader, originAllowed, portFromHostHeader, requestAllowed, writeRequestAllowed } from './guard.js'
 
 describe('Host и Origin', () => {
   test('снимает порт и принимает loopback', () => {
@@ -7,6 +7,18 @@ describe('Host и Origin', () => {
     expect(hostnameFromHostHeader('LocalHost')).toBe('localhost')
     expect(requestAllowed('127.0.0.1:8787', undefined)).toBe(true)
     expect(requestAllowed('localhost:8787', 'http://127.0.0.1:8787')).toBe(true)
+  })
+
+  test('запись требует тот же порт у Host и Origin', () => {
+    expect(portFromHostHeader('127.0.0.1:8787')).toBe(8787)
+    expect(portFromHostHeader('127.0.0.1')).toBeNull()
+    expect(portFromHostHeader('[::1]:8787')).toBe(8787)
+    expect(writeRequestAllowed('127.0.0.1:8787', 'http://127.0.0.1:8787')).toBe(true)
+    expect(writeRequestAllowed('localhost:8787', 'http://127.0.0.1:8787')).toBe(true)
+    expect(writeRequestAllowed('127.0.0.1:8787', 'http://127.0.0.1:9')).toBe(false)
+    expect(writeRequestAllowed('127.0.0.1:8787', undefined)).toBe(false)
+    expect(writeRequestAllowed('127.0.0.1', 'http://127.0.0.1:8787')).toBe(false)
+    expect(writeRequestAllowed('evil.example:8787', 'http://evil.example:8787')).toBe(false)
   })
 
   test('чужой хост и origin отклоняются', () => {

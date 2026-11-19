@@ -4,6 +4,8 @@
  * ВХОД: путь и тело. Необязательный afterChunk — крюк для теста обрыва.
  * ВЫХОД: файл заменён через rename. Пока идёт запись, цель не трогаем: пишем во временный файл рядом.
  * rename на том же томе в Node — замена целиком (на Windows это MoveFileEx с REPLACE_EXISTING).
+ * На Windows цель иногда занята долю секунды (EPERM, EBUSY, EACCES). Повторяем только rename:
+ * тело уже лежит во временном файле, саму цель до успешного rename не трогаем.
  * Обрыв процесса до rename оставляет прежний файл. Временный хвост после kill — ожидаемый мусор, не данные.
  */
 
@@ -13,6 +15,47 @@ import path from 'node:path'
 
 export type AtomicHooks = {
   afterChunk?: (index: number) => Promise<void> | void
+  /** Подмена rename в тесте. Боевой путь зовёт fs.rename. */
+  rename?: (from: string, to: string) => Promise<void>
+  pause?: (ms: number) => Promise<void> | void
+}
+
+const RENAME_ATTEMPTS = 5
+const RETRYABLE_RENAME = new Set(['EPERM', 'EBUSY', 'EACCES'])
+
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return ''
+  }
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : ''
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+/** Повторяет rename, пока цель кратко заблокирована. Другие ошибки — сразу наружу. */
+export async function renameReplacing(
+  from: string,
+  to: string,
+  attempt: (from: string, to: string) => Promise<void>,
+  pause: (ms: number) => Promise<void> | void,
+): Promise<void> {
+  for (let n = 1; n <= RENAME_ATTEMPTS; n += 1) {
+    try {
+      await attempt(from, to)
+      return
+    } catch (error) {
+      const again = RETRYABLE_RENAME.has(errorCode(error)) && n < RENAME_ATTEMPTS
+      if (!again) {
+        throw error
+      }
+      await pause(20 * n)
+    }
+  }
 }
 
 const CHUNK = 16 * 1024
@@ -59,7 +102,7 @@ export async function writeAtomic(target: string, body: string | Uint8Array, hoo
     await handle.sync()
     await handle.close()
     handle = undefined
-    await rename(tmp, target)
+    await renameReplacing(tmp, target, hooks?.rename ?? rename, hooks?.pause ?? delay)
     committed = true
   } catch (error) {
     if (handle) {

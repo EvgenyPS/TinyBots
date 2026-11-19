@@ -3,7 +3,8 @@
  * НАЗНАЧЕНИЕ: HTTP пульта на 127.0.0.1.
  * ВХОД: config.yaml (или демо-набор) и сборка apps/web/dist, если она есть.
  * ВЫХОД: /health, /api/bots (список каркаса), API проектов, ботов, чатов, записок и страница.
- * Чужой Host/Origin — 403. Запись закрыта, пока нет CSRF: любой не-GET отвечает 405.
+ * Чужой Host/Origin — 403. Единственная запись — POST /api/setup: тот же порт у Host и Origin,
+ * токен с GET /api/setup, схема до rename. Любой другой не-GET отвечает 405.
  * Битый конфиг не роняет процесс: API отдаёт файл, строку и причину.
  */
 
@@ -15,8 +16,11 @@ import { serve, type HttpBindings, type ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { Server } from 'node:http'
 import { BIND_HOST } from './bind.js'
+import { describeSetup, saveSetup } from './config/setup.js'
+import { inspectSource } from './config/source-check.js'
+import { newCsrfToken, tokensMatch } from './csrf.js'
 import { FALLBACK_HTML } from './fallback-html.js'
-import { requestAllowed } from './guard.js'
+import { requestAllowed, writeRequestAllowed } from './guard.js'
 import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
 import type { ConfigFailure } from './config/load.js'
 import { repoRoot } from './root.js'
@@ -40,9 +44,16 @@ function publish(result: LauncherView | ConfigFailure): { body: LauncherView | C
   return { body: result, status: 200 }
 }
 
+const SETUP_BODY_LIMIT = 65_536
+
+function isSetupWrite(method: string, pathname: string): boolean {
+  return method === 'POST' && pathname === '/api/setup'
+}
+
 export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }> {
   const app = new Hono<{ Bindings: HttpBindings }>()
   const root = repoRoot()
+  const csrf = newCsrfToken()
   const botsFile = path.join(root, 'demo', 'bots.json')
   const webDist = path.join(root, 'apps', 'web', 'dist')
   const indexFile = path.join(webDist, 'index.html')
@@ -53,12 +64,20 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
   app.use('*', async (c, next) => {
     c.header('X-Content-Type-Options', 'nosniff')
     c.header('Referrer-Policy', 'no-referrer')
-    // Запись откроем вместе с CSRF. Пока любого не-GET нет.
-    if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
-      return c.json({ error: 'writes_not_ready' }, 405)
-    }
     const host = hostFromContext(c)
-    if (!requestAllowed(host, c.req.header('origin'))) {
+    const origin = c.req.header('origin')
+    const pathname = new URL(c.req.url).pathname
+    if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
+      if (!isSetupWrite(c.req.method, pathname)) {
+        return c.json({ error: 'writes_not_ready' }, 405)
+      }
+      if (!writeRequestAllowed(host, origin)) {
+        return c.json({ error: 'forbidden_host' }, 403)
+      }
+      await next()
+      return
+    }
+    if (!requestAllowed(host, origin)) {
       return c.json({ error: 'forbidden_host' }, 403)
     }
     await next()
@@ -131,6 +150,38 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
       return c.json(result, 422)
     }
     return c.json({ ok: true, synced_at: result.synced_at, synced_label: result.synced_label })
+  })
+
+  app.get('/api/setup', (c) => {
+    // Токен и флаг «файла ещё нет» нельзя отдать из кэша: после записи пульт должен увидеть файл.
+    c.header('Cache-Control', 'no-store')
+    const sent = describeSetup(root, options?.configPath, csrf)
+    return c.json(sent.body, sent.status)
+  })
+
+  app.get('/api/setup/source', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const report = await inspectSource(root, options?.configPath, c.req.query('path') ?? '')
+    return c.json(report, report.ok ? 200 : 422)
+  })
+
+  app.post('/api/setup', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    if (!tokensMatch(csrf, c.req.header('x-csrf-token'))) {
+      return c.json({ error: 'csrf' }, 403)
+    }
+    const raw = await c.req.text()
+    if (raw.length > SETUP_BODY_LIMIT) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    let payload: unknown
+    try {
+      payload = JSON.parse(raw) as unknown
+    } catch {
+      return c.json({ error: 'json' }, 400)
+    }
+    const saved = await saveSetup(root, options?.configPath, payload)
+    return c.json(saved.body, saved.status)
   })
 
   // Абсолютный root у serveStatic в типах не обещан, поэтому путь относительно cwd.

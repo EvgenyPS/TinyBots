@@ -7,6 +7,7 @@
 
 import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -111,4 +112,70 @@ await writeAtomic(target, body, {
   const text = readFileSync(target, 'utf8')
   expect(text).toBe(original)
   expect(JSON.parse(text)).toEqual({ ok: true, n: 1 })
+})
+
+function busyError(): NodeJS.ErrnoException {
+  const error = new Error('busy') as NodeJS.ErrnoException
+  error.code = 'EPERM'
+  return error
+}
+
+test('rename повторяется после EPERM и затем заменяет файл', async () => {
+  const dir = scratch()
+  const target = path.join(dir, 'note.json')
+  writeFileSync(target, '{"ok":false}\n')
+  let calls = 0
+  await writeAtomic(target, '{"ok":true}\n', {
+    pause: () => undefined,
+    rename: async (from, to) => {
+      calls += 1
+      if (calls === 1) {
+        throw busyError()
+      }
+      await rename(from, to)
+    },
+  })
+  expect(calls).toBe(2)
+  expect(readFileSync(target, 'utf8')).toBe('{"ok":true}\n')
+  expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
+})
+
+test('чужой код ошибки rename не повторяется и не портит цель', async () => {
+  const dir = scratch()
+  const target = path.join(dir, 'note.json')
+  writeFileSync(target, '{"ok":true}\n')
+  let calls = 0
+  await expect(
+    writeAtomic(target, '{"ok":false}\n', {
+      pause: () => undefined,
+      rename: () => {
+        calls += 1
+        const error = new Error('gone') as NodeJS.ErrnoException
+        error.code = 'ENOENT'
+        throw error
+      },
+    }),
+  ).rejects.toThrow('gone')
+  expect(calls).toBe(1)
+  expect(readFileSync(target, 'utf8')).toBe('{"ok":true}\n')
+  expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
+})
+
+test('пять EPERM подряд оставляют прежний файл', async () => {
+  const dir = scratch()
+  const target = path.join(dir, 'note.json')
+  writeFileSync(target, '{"ok":true}\n')
+  let calls = 0
+  await expect(
+    writeAtomic(target, '{"ok":false}\n', {
+      pause: () => undefined,
+      rename: () => {
+        calls += 1
+        throw busyError()
+      },
+    }),
+  ).rejects.toThrow('busy')
+  expect(calls).toBe(5)
+  expect(readFileSync(target, 'utf8')).toBe('{"ok":true}\n')
+  expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
 })

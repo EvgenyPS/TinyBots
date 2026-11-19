@@ -2,6 +2,7 @@
  * FILE: apps/server/src/server.test.ts
  * НАЗНАЧЕНИЕ: дымовая проверка каркаса.
  * Сервер слушает только 127.0.0.1, /health отвечает 200, чужой Host получает 403.
+ * POST мимо /api/setup по-прежнему 405.
  */
 
 import http from 'node:http'
@@ -102,7 +103,7 @@ test('чужой Host и Origin отклоняются, свой Origin прох
   ).toBe(200)
 })
 
-test('запись закрыта, пока нет CSRF', async () => {
+test('запись мимо мастера закрыта', async () => {
   const server = requireServer()
   const res = await fetch(`http://${BIND_HOST}:${server.port}/health`, { method: 'POST' })
   expect(res.status).toBe(405)

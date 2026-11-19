@@ -1,7 +1,7 @@
 /**
  * FILE: e2e/b2-empty.spec.ts
  * НАЗНАЧЕНИЕ: B2. Три урезанных конфига показывают текст и кнопку «Настроить».
- * Кнопка открывает заглушку мастера, страница не падает.
+ * Кнопка открывает мастер, страница не падает.
  */
 
 import { expect, test } from '@playwright/test'
@@ -23,7 +23,7 @@ for (const item of cases) {
       await expect(empty).toContainText(item.title)
       await expect(empty.getByTestId('setup-link')).toHaveText('Настроить')
       await empty.getByTestId('setup-link').click()
-      await expect(page.getByTestId('setup-stub')).toBeVisible()
+      await expect(page.getByTestId('setup-wizard')).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Настроить' })).toBeVisible()
     } finally {
       await server.stop()

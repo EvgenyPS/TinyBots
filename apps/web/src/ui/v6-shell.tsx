@@ -3,7 +3,7 @@
  * НАЗНАЧЕНИЕ: тёмная оболочка пульта по сетке v6 (рейл, чаты, сцена).
  * ВХОД: GET /api/launcher. Имена, записки и задачи приходят только оттуда.
  * ВЫХОД: орбита, карточка бота, Задания, Канбан, Правила.
- * Пустые состояния ведут на /setup — заглушку мастера. Бриф и мерж сюда не входят.
+ * Пустые состояния ведут на /setup — мастер записывает config.yaml. Бриф и мерж сюда не входят.
  * Записка старше порога уже помечена сервером: здесь только серый цвет и слово «устарело».
  */
 
@@ -113,17 +113,6 @@ function botsForProject(data: View, project: Project): Bot[] {
     }
   }
   return data.bots.filter((bot) => ids.has(bot.id))
-}
-
-export function SetupStub() {
-  return (
-    <main className="setup" data-testid="setup-stub">
-      <p className="k">Мастер</p>
-      <h1>Настроить</h1>
-      <p>Мастер настройки ещё не собран. Здесь появится проход, который запишет config.yaml.</p>
-      <a className="btn primary" href="/">К пульту</a>
-    </main>
-  )
 }
 
 function Mark(props: { id: string; name: string; lead: boolean; dim: boolean }) {
