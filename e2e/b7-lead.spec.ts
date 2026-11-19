@@ -28,14 +28,13 @@ test('пауза, пустой главный, проектный главный
     await page.getByTestId('chat-relay').click()
     await page.getByTestId('brief-task-task-relay').click()
     await expect(page.getByTestId('brief-recipient')).toHaveText('Уйдёт: Нить')
-    await expect(page.getByTestId('brief-fallback')).toContainText('Нить')
-    await expect(page.getByTestId('brief-fallback')).toContainText('вручную')
+    await expect(page.getByTestId('brief-fallback')).toHaveText('Если чат не открылся, откройте Нить вручную.')
     await expect(page.getByTestId('open-lead-chat')).toHaveCount(0)
 
     await page.getByTestId('chat-plain').click()
     await page.getByTestId('brief-task-task-plain').click()
     await expect(page.getByTestId('brief-recipient')).toHaveText('Уйдёт: Нить')
-    await expect(page.getByTestId('brief-fallback')).toContainText('Откройте чат «Нить» вручную.')
+    await expect(page.getByTestId('brief-fallback')).toHaveText('Если чат не открылся, откройте Нить вручную.')
     await expect(page.getByTestId('open-lead-chat')).toHaveCount(0)
   } finally {
     await server.stop()

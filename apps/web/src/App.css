@@ -215,12 +215,12 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
 .note.is-stale, .note.is-missing, .stale-tag { color: var(--stale); }
 .stale-tag { font-weight: 750; }
 
-/* Оверлей под узлами: сетка орбиты не меняется, а бота всё ещё можно нажать. */
+/* Оверлей поверх орбиты. Absolute, поэтому размер и место орбиты не меняются. */
 .bot-card {
   position: absolute;
   top: 64px;
   right: 12px;
-  z-index: 2;
+  z-index: 5;
   width: 280px;
   max-height: calc(100% - 76px);
   overflow: auto;

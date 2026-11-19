@@ -34,7 +34,7 @@
 tsc strict, eslint, vitest (схемы, автомат, атомарная запись, манифест), Playwright на demo, LICENSE/NOTICE, gitleaks; матрица windows-latest + ubuntu-latest.
 
 ## Порядок PR
-1 каркас+CI+LICENSE/NOTICE+demo · 2 schema · 3 config/store/SSE · 4 web v6 только чтение · 5 tasks+briefs · 6 merge+outbox · 7 sync · 8 git/files · 9 мастер и пустые состояния · 10 skill + docs.
+1 каркас+CI+LICENSE/NOTICE+demo · 2 schema · 3 config/store (SSE — позже) · 4 web v6 только чтение · 5 tasks+briefs · 6 merge+outbox · 7 sync · 8 git/files · 9 мастер и пустые состояния · 10 skill + docs.
 
 ## Вопросы владельцу
 Нет.

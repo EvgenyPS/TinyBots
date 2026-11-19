@@ -56,6 +56,7 @@ export function composeBrief(input: {
     lead_name: lead.bot.name,
     via: lead.via,
     href,
-    fallback: href ? null : manualChatHint(lead.bot.name),
+    // Подсказка рядом со ссылкой и без неё: протокол мог не открыться.
+    fallback: manualChatHint(lead.bot.name),
   }
 }

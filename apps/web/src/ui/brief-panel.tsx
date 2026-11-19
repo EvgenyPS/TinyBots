@@ -136,7 +136,7 @@ export function BriefPanel(props: {
           </div>
           {copied ? <p className="sub">Бриф в буфере</p> : null}
           {copyFailed ? <p className="brief-error" data-testid="copy-error">Буфер недоступен</p> : null}
-          {!ready.href && ready.fallback ? <p data-testid="brief-fallback">{ready.fallback}</p> : null}
+          {ready.fallback ? <p data-testid="brief-fallback">{ready.fallback}</p> : null}
         </>
       ) : null}
     </section>

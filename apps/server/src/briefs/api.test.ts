@@ -47,11 +47,13 @@ test('primary: бриф уходит Биту, ссылка с его id, оче
     via: string
     delivery: string
     lines: number
+    fallback: string | null
   }
   expect(body.ok).toBe(true)
   expect(body.recipient).toBe('Уйдёт: Бит')
   expect(body.via).toBe('chat')
   expect(body.href).toBe('grokbot://app/v1/agent?id=demo-bit')
+  expect(body.fallback).toBe('Если чат не открылся, откройте Бит вручную.')
   expect(body.delivery).toBe('clipboard')
   expect(body.lines).toBeLessThanOrEqual(8)
   expect(body.text).toContain('Что: Превью в доке')
@@ -90,6 +92,5 @@ test('нет главного в чате — берём главного про
   expect(body.recipient).toBe('Уйдёт: Нить')
   expect(body.via).toBe('project')
   expect(body.href).toBeNull()
-  expect(body.fallback).toContain('Нить')
-  expect(body.fallback).toContain('вручную')
+  expect(body.fallback).toBe('Если чат не открылся, откройте Нить вручную.')
 })

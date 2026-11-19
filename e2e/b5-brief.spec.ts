@@ -49,7 +49,7 @@ test('бриф за один клик, подпись, буфер и ссылк�
     expect(shown).not.toContain('Ава')
 
     await expect(page.getByTestId('open-lead-chat')).toHaveAttribute('href', 'grokbot://app/v1/agent?id=demo-bit')
-    await expect(page.getByTestId('brief-fallback')).toHaveCount(0)
+    await expect(page.getByTestId('brief-fallback')).toHaveText('Если чат не открылся, откройте Бит вручную.')
 
     await page.getByTestId('copy-brief').click()
     const copied = await page.evaluate(() => navigator.clipboard.readText())
