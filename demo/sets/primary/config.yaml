@@ -1,0 +1,58 @@
+# Первый демо-набор пульта. Часы в тестах зафиксированы на 2026-11-19T10:00:00Z.
+schema_version: 1
+owner:
+  name: "Alex"
+  confirms_merge: true
+data_dir: "data"
+delivery: clipboard
+timezone: "Europe/Moscow"
+bots:
+  - id: lead1
+    name: "Ава"
+    role: "тимлид"
+    grok_id: "demo-ava"
+  - id: dev1
+    name: "Бит"
+    role: "код"
+    executor_for_merge: true
+    grok_id: "demo-bit"
+  - id: qa1
+    name: "Тэст"
+    role: "проверка"
+    grok_id: "demo-test"
+  - id: rev1
+    name: "Рев"
+    role: "ревизор"
+    paused: false
+    grok_id: "demo-rev"
+projects:
+  - id: demo-game
+    title: "Demo Game"
+    lead: lead1
+    owner: owner
+    merge_executor: dev1
+    source:
+      git:
+        provider: github
+        repo: "example/demo-game"
+      files:
+        path: "demo-project"
+    chats:
+      - id: build
+        title: "Сборка"
+        lead: dev1
+        members: [dev1, qa1, rev1, lead1]
+        rules:
+          do: "код, тесты, ревью"
+          dont: "оформление, посты"
+        context:
+          - "src/app.txt"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+economy:
+  defaults:
+    wake: mentioned_only
+    reply_limit: short
+    max_wakes_per_task: 3
+  stale_after_hours: 6

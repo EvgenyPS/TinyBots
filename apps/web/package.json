@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Страница пульта TinyBots. Оболочка v6 — PR 4.",
+  "description": "Страница пульта TinyBots: тёмная оболочка по сетке v6, данные из API.",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",

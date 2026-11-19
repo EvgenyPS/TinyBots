@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-19T09:30:00Z",
+  "task_id": "task-01",
+  "state": "working",
+  "links": ["src/app.txt"],
+  "verified": "превью открывается",
+  "not_done": "снимок не снят",
+  "risks": "снимок экрана не покрыт",
+  "question_to_owner": "покрываем превью?"
+}

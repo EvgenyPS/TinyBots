@@ -1,0 +1,19 @@
+schema_version: 1
+owner:
+  name: "Nika"
+  confirms_merge: true
+data_dir: "data"
+delivery: clipboard
+timezone: "UTC"
+bots:
+  - id: spark1
+    name: "Искра"
+    role: "наблюдатель"
+    grok_id: "demo-spark"
+projects: []
+economy:
+  defaults:
+    wake: mentioned_only
+    reply_limit: short
+    max_wakes_per_task: 3
+  stale_after_hours: 6

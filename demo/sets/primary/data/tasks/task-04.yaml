@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:15:00Z"
+id: task-04
+project: demo-game
+chat: build
+assignee: lead1
+goal: "Состав модулей"
+inputs:
+  - kind: path
+    value: "notes/goals.md"
+output: "список модулей"
+done_when: "состав зафиксирован"
+out_of_scope: "вёрстка"
+reply_limit: short
+due: "2026-11-23"
+status: done

@@ -12,6 +12,10 @@ data_dir/
 # Примеры контракта лежат в demo/data и должны быть в git.
 !demo/data/
 !demo/data/**
+# Демо-наборы пульта: config.yaml и их data/ тоже в git. Пользовательский config.yaml выше остаётся скрытым.
+!demo/sets/**/config.yaml
+!demo/sets/**/data/
+!demo/sets/**/data/**
 
 # Зависимости и сборка
 node_modules/
@@ -24,5 +28,9 @@ dist-types/
 .DS_Store
 Thumbs.db
 
-# Покрытие тестов
+# Покрытие тестов и прогон браузера
 coverage/
+test-results/
+playwright-report/
+blob-report/
+ms-playwright/
