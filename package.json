@@ -1,0 +1,39 @@
+{
+  "name": "tinybots",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Локальный пульт над ботами: брифы и статусы на машине пользователя",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "schema:json": "npm run emit -w @tinybots/schema",
+    "check:license": "node scripts/check-license.mjs",
+    "check:forbidden": "node scripts/check-forbidden.mjs",
+    "gitleaks": "node scripts/run-gitleaks.mjs",
+    "prepare": "node scripts/install-hooks.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EvgenyPS/TinyBots.git"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "24.10.1",
+    "eslint": "9.39.5",
+    "globals": "17.4.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.73.0",
+    "vitest": "5.1.1"
+  }
+}

@@ -1,0 +1,40 @@
+# Контракт — модули, репо, стек, контракт файлов (к §2, §3.2, §1)
+Полная версия: ../ARCH.md. Стек §2 подтверждаю: Node 20 LTS + TS strict, Hono, Vite+React, zod, yaml, chokidar+SSE, simple-git (Octokit — только при токене в .env).
+
+## Структура репо (уточнение §3.2, npm workspaces)
+- `packages/schema/` — zod-схемы config/task/status/merge_request/outbox/sync_manifest; из них генерится `schema/*.json`. Один источник типов для server и web.
+- `server/`: `config` (yaml+.env, мастер) · `store` (data_dir, атомарная запись tmp+rename, chokidar→SSE) · `tasks` · `merge` (автомат) · `briefs` (шаблоны ≤8 строк, grokbot://) · `sync` (бандлы) · `git` · `files` (дерево/граф, только allowlist путей) · `api` (`/api/*`, `/api/events`).
+- `web/` — v6 в компонентах, TanStack Query + инвалидация по SSE. `demo/`, `docs/`, `skill/` — как в §3.2.
+- БД нет, только файлы data_dir.
+
+## Контракт файлов (data_dir)
+`tasks/<task_id>.yaml` — пишет главный бот:
+`id, project, chat, assignee, goal, inputs[] (пути/SHA/PR), output, done_when, out_of_scope, reply_limit, due, status(new|working|review|done|blocked), updated_at` — поля = формат задачи ревизора (≤ 8 строк).
+`status/<bot_id>.json` — пишет только бот-исполнитель (отчёт по протоколу тимлида):
+`task_id, state(working|blocked|done), links[], verified, not_done, risks? (необяз., идёт в окно мержа), question_to_owner, updated_at` — поля = формат сдачи ревизора (≤ 6 строк).
+`merge_requests/<project>-<pr>.json` — пишет главный: `project, pr_url, head_sha, tasks[], checks(green|red), summary(≤3 строки), state, history[{state,at,by,why}]` (модель §4.4 + head_sha).
+`outbox/` — пишет только лаунчер:
+- `decisions/<project>-<pr>.json`: `action(approved|rejected|revert), head_sha, by(owner), at`. Решение привязано к head_sha: новый пуш делает его недействительным.
+- `queue/<task_id>.yaml`: черновик задачи от владельца.
+- `feedback/<id>.json`: отзыв по результату.
+Все файлы: `schema_version`, `updated_at` (ISO с зоной). Невалидный файл — ошибка на карточке, сервер не падает.
+
+## Автомат мержа (сведён с §4.5, единый вариант)
+`draft → awaiting_owner → (changes_requested → awaiting_owner …) → approved → delivered → merging → merged`.
+Другие исходы: `→ rejected` · `merging → merge_failed → awaiting_owner` · `merged → reverted`.
+Отличие от §4.5 одно — состояние `delivered` («решение доставлено на бокс», §1 «отправлено, не доставлено»): лаунчер ставит `approved`, `delivered` ставит только главный после синка, `merge_executor` стартует только из `delivered`. Если `head_sha` изменился после `approved` → обратно в `awaiting_owner`. Каждый переход в `history[{state,at,by,why}]`.
+
+## Синк бокс ↔ ПК (меньше одобрений)
+По одному бандлу в каждую сторону: `box-to-pc.tgz` (tasks, status, merge_requests) и `pc-to-box.tgz` (outbox) с `sync_manifest.json` (path, sha256, updated_at). Это 2 операции на ПК вместо N. Распаковку делает лаунчер/скрипт, не перезаписывая файлы чужого писателя.
+
+## Безопасность
+Только 127.0.0.1; проверка Host/Origin (DNS rebinding) и CSRF-токен на запись; пути только внутри конфига (нормализация, без `..` и внешних симлинков); секреты только из .env, в API и логи не попадают; gitleaks в pre-commit и CI.
+
+## CI
+tsc strict, eslint, vitest (схемы, автомат, атомарная запись, манифест), Playwright на demo, LICENSE/NOTICE, gitleaks; матрица windows-latest + ubuntu-latest.
+
+## Порядок PR
+1 каркас+CI+LICENSE/NOTICE+demo · 2 schema · 3 config/store/SSE · 4 web v6 только чтение · 5 tasks+briefs · 6 merge+outbox · 7 sync · 8 git/files · 9 мастер и пустые состояния · 10 skill + docs.
+
+## Вопросы владельцу
+Нет.

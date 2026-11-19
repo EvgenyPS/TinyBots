@@ -1,0 +1,21 @@
+# Общие шаблоны стоп-листа. Личных имён и идентификаторов здесь нет.
+# Личные строки лежат вне git: scripts/forbidden.local.txt и секрет CI FORBIDDEN_EXTRA.
+# Нет файла или переменной — скрипт пропускает источник и пишет предупреждение.
+# re: — регулярное выражение, флаг i добавляет скрипт.
+# Путь с обратным слешем сравнивается и с прямым слешем, и с JSON-экранированием.
+
+re:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
+grok_id=
+/home/
+D:\
+/workspace/
+ghp_
+github_pat_
+gho_
+glpat-
+xoxb-
+xoxp-
+AKIA
+BEGIN PRIVATE KEY
+BEGIN RSA PRIVATE KEY
+BEGIN OPENSSH PRIVATE KEY

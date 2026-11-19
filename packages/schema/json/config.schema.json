@@ -1,0 +1,306 @@
+{
+  "$id": "https://tinybots.local/schema/config.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "owner": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confirms_merge": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "confirms_merge"
+      ],
+      "additionalProperties": false
+    },
+    "data_dir": {
+      "type": "string"
+    },
+    "delivery": {
+      "type": "string",
+      "enum": [
+        "clipboard",
+        "queue"
+      ]
+    },
+    "bots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "avatar": {
+            "type": "string"
+          },
+          "grok_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "executor_for_merge": {
+            "type": "boolean"
+          },
+          "paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lead": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "merge_executor": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "git": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "provider": {
+                        "type": "string",
+                        "const": "github"
+                      },
+                      "repo": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "repo"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "files": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "chats": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "lead": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                },
+                "members": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                  }
+                },
+                "rules": {
+                  "type": "object",
+                  "properties": {
+                    "do": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "dont": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "do",
+                    "dont"
+                  ],
+                  "additionalProperties": false
+                },
+                "context": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "economy": {
+                  "type": "object",
+                  "properties": {
+                    "wake": {
+                      "type": "string",
+                      "enum": [
+                        "mentioned_only"
+                      ]
+                    },
+                    "reply_limit": {
+                      "type": "string",
+                      "enum": [
+                        "short",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "wake",
+                    "reply_limit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "lead",
+                "members",
+                "rules",
+                "context",
+                "economy"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "lead",
+          "owner",
+          "merge_executor",
+          "source",
+          "chats"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "economy": {
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "wake": {
+              "type": "string",
+              "enum": [
+                "mentioned_only"
+              ]
+            },
+            "reply_limit": {
+              "type": "string",
+              "enum": [
+                "short",
+                "long"
+              ]
+            },
+            "max_wakes_per_task": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "wake",
+            "reply_limit",
+            "max_wakes_per_task"
+          ],
+          "additionalProperties": false
+        },
+        "stale_after_hours": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "defaults",
+        "stale_after_hours"
+      ],
+      "additionalProperties": false
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "owner",
+    "data_dir",
+    "delivery",
+    "bots",
+    "projects",
+    "economy"
+  ],
+  "additionalProperties": false
+}

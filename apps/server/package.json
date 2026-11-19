@@ -1,0 +1,16 @@
+{
+  "name": "@tinybots/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Локальный сервер TinyBots на 127.0.0.1",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.9",
+    "@tinybots/schema": "0.0.0",
+    "hono": "4.13.19"
+  }
+}

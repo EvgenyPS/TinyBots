@@ -1,0 +1,45 @@
+schema_version: 1
+owner:
+  name: "Alex"
+  confirms_merge: true
+data_dir: "./data"
+delivery: queue
+bots:
+  - id: lead1
+    name: "Ава"
+    role: "тимлид"
+    grok_id: "demo-ava"
+  - id: dev1
+    name: "Бит"
+    role: "код"
+    executor_for_merge: true
+    grok_id: "demo-bit"
+projects:
+  - id: demo-game
+    title: "Demo Game"
+    lead: lead1
+    owner: owner
+    merge_executor: dev1
+    source:
+      git: null
+      files:
+        path: "./side-project"
+    chats:
+      - id: build
+        title: "Сборка"
+        lead: dev1
+        members: [dev1, lead1]
+        rules:
+          do: "код и тесты"
+          dont: "посты"
+        context:
+          - "src/app.txt"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+economy:
+  defaults:
+    wake: mentioned_only
+    reply_limit: short
+    max_wakes_per_task: 3
+  stale_after_hours: 6

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-19T09:15:00Z",
+  "week": "2026-W45",
+  "wakes_per_task": 4,
+  "replies_over_limit_share": 0.2,
+  "blocked_share": 0.1,
+  "savings_estimate_percent": null,
+  "baseline": true
+}

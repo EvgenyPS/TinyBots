@@ -1,0 +1,53 @@
+{
+  "$id": "https://tinybots.local/schema/usage.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "week": {
+      "type": "string",
+      "pattern": "^\\d{4}-W(0[1-9]|[1-4]\\d|5[0-3])$"
+    },
+    "wakes_per_task": {
+      "type": "number",
+      "minimum": 0
+    },
+    "replies_over_limit_share": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "blocked_share": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "savings_estimate_percent": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "baseline": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "updated_at",
+    "week",
+    "wakes_per_task",
+    "replies_over_limit_share",
+    "blocked_share",
+    "savings_estimate_percent",
+    "baseline"
+  ],
+  "additionalProperties": false
+}

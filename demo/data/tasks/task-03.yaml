@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:15:00Z"
+id: task-03
+project: demo-game
+chat: build
+assignee: dev1
+goal: "Ждём решение по тексту"
+inputs:
+  - kind: pr
+    value: "https://example.invalid/demo-game/pull/4"
+output: "файл в демо-проекте"
+done_when: "критерий из карточки выполнен"
+out_of_scope: "оформление и посты"
+reply_limit: short
+due: "2026-11-22"
+status: blocked

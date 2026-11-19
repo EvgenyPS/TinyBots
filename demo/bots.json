@@ -1,0 +1,26 @@
+[
+  {
+    "id": "lead1",
+    "name": "Ава",
+    "role": "тимлид",
+    "grok_id": "demo-ava"
+  },
+  {
+    "id": "dev1",
+    "name": "Бит",
+    "role": "код",
+    "grok_id": "demo-bit"
+  },
+  {
+    "id": "qa1",
+    "name": "Тэст",
+    "role": "проверка",
+    "grok_id": "demo-test"
+  },
+  {
+    "id": "rev1",
+    "name": "Рев",
+    "role": "ревизор",
+    "grok_id": "demo-rev"
+  }
+]

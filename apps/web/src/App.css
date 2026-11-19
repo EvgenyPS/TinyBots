@@ -1,0 +1,20 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #16161c;
+  color: #f2f2f4;
+}
+
+main {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+li {
+  margin: 0.35rem 0;
+}

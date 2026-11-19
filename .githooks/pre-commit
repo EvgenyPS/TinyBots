@@ -1,0 +1,4 @@
+#!/bin/sh
+# Git (включая Git for Windows) запускает хук через sh. Дальше работает node.
+cd "$(dirname "$0")/.." || exit 1
+exec node scripts/run-gitleaks.mjs --staged

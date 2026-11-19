@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:15:00Z"
+id: task-05
+project: demo-game
+chat: build
+assignee: dev1
+goal: "Второй черновик"
+inputs:
+  - kind: path
+    value: "layout.txt"
+output: "файл в демо-проекте"
+done_when: "критерий из карточки выполнен"
+out_of_scope: "оформление и посты"
+reply_limit: long
+due: "2026-11-26"
+status: new

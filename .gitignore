@@ -1,0 +1,28 @@
+# Секреты и локальный конфиг пользователя
+.env
+.env.*
+!.env.example
+config.yaml
+# Личные строки стоп-листа. В CI тот же текст — секрет FORBIDDEN_EXTRA.
+scripts/forbidden.local.txt
+
+# data_dir — каталог данных лаунчера (по умолчанию ./data)
+data/
+data_dir/
+# Примеры контракта лежат в demo/data и должны быть в git.
+!demo/data/
+!demo/data/**
+
+# Зависимости и сборка
+node_modules/
+dist/
+dist-types/
+*.tsbuildinfo
+
+# Логи и мусор ОС
+*.log
+.DS_Store
+Thumbs.db
+
+# Покрытие тестов
+coverage/

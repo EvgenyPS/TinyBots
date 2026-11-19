@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Пульт демо · Demo Game</title>
+<style>
+@font-face { font-family: Manrope; src: local("Manrope"), local("Manrope Regular"); font-display: swap; }
+@font-face { font-family: Inter; src: local("Inter"); font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: local("IBM Plex Mono"); font-display: swap; }
+:root {
+  --ink:#1a1430; --muted:#5e5778; --faint:#8b85a3;
+  --line:rgba(40,24,70,.10); --line2:rgba(40,24,70,.16);
+  --accent:#6b4cff; --accent-soft:#efeaff;
+  --ok:#1ea36a; --ok-soft:#e7f8ef; --danger:#d94a4a;
+  --glass:rgba(255,255,255,.66); --card:rgba(255,255,255,.84);
+  --shadow:0 10px 28px rgba(55,30,90,.08); --r:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:Manrope,Inter,"IBM Plex Sans",sans-serif;color:var(--ink);
+  background:
+    radial-gradient(900px 520px at 6% -8%, #f4d9ff 0%, transparent 58%),
+    radial-gradient(800px 500px at 100% 0%, #cfe6ff 0%, transparent 55%),
+    radial-gradient(700px 480px at 80% 100%, #ffe0d2 0%, transparent 55%),
+    radial-gradient(600px 400px at 0% 80%, #d8ffe8 0%, transparent 50%),
+    linear-gradient(180deg,#f6f0ff 0%,#eef4ff 45%,#fff4ea 100%);
+  font-size:13px;line-height:1.45;letter-spacing:-.01em;overflow:hidden;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+img{display:block}
+.app{width:1440px;height:900px;display:grid;grid-template-columns:56px 268px 1fr}
+
+/* mascots */
+.ms{position:relative;display:inline-grid;place-items:center;width:24px;height:24px;flex-shrink:0}
+.ms .bd{width:100%;height:100%;position:relative;box-shadow:inset -3px -4px 8px rgba(0,0,0,.16),0 3px 8px rgba(40,20,80,.16)}
+.ms .eye{position:absolute;top:34%;width:22%;height:28%;background:#fff;border-radius:50%}
+.ms .eye.l{left:22%}.ms .eye.r{right:22%}
+.ms .eye i{position:absolute;width:46%;height:52%;background:#1a1430;border-radius:50%;top:28%;left:24%}
+.ms .mo{position:absolute;left:32%;right:32%;bottom:22%;height:14%;border-bottom:2px solid rgba(26,20,48,.65);border-radius:0 0 8px 8px}
+.ms.md{width:32px;height:32px}
+.ms.lg{width:72px;height:72px}
+.ms.xl{width:88px;height:88px}
+.ms.lint .bd{border-radius:22%;background:radial-gradient(circle at 32% 28%,#6a6a76,#1c1c24 58%,#0c0c10)}
+.ms.ava .bd{background:radial-gradient(circle at 32% 28%,#ffb3d8,#ef4ea6 52%,#c0267c);clip-path:polygon(50% 2%,98% 70%,80% 100%,20% 100%,2% 70%)}
+.ms.pix .bd{width:80%;height:100%;border-radius:24%;background:radial-gradient(circle at 32% 28%,#b6f5cc,#2db86a 55%,#1a8a4b);box-shadow:inset -3px -4px 8px rgba(0,0,0,.16),0 3px 8px rgba(40,20,80,.16)}
+.ms.pix .spark{position:absolute;right:2px;top:0;font-size:.55em;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.25);pointer-events:none}
+.ms.znak .bd{border-radius:50%;background:radial-gradient(circle at 32% 28%,#ffe29a,#f0b22a 55%,#c48910)}
+.ms.znak .mark{position:absolute;right:-2px;bottom:-2px;width:42%;height:42%;background:#1a1430;color:#ffe29a;font-size:.55em;font-weight:800;border-radius:50%;display:grid;place-items:center;box-shadow:0 0 0 2px #fff;line-height:1}
+.ms.qa .bd{border-radius:46%;background:radial-gradient(circle at 32% 28%,#c5ffd8,#3dba6e 55%,#1e8a48)}
+.ms.bit .bd{background:radial-gradient(circle at 32% 28%,#d2c4ff,#8a63ff 55%,#5a35d6);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.ms.rev .bd{background:radial-gradient(circle at 32% 28%,#ffb3b3,#e44545 55%,#b02525);clip-path:polygon(28% 0,72% 0,100% 28%,100% 72%,72% 100%,28% 100%,0 72%,0 28%)}
+.ms.rev .bd:before{content:"";position:absolute;top:26%;left:18%;width:28%;height:6%;background:#4a1010;border-radius:2px;transform:rotate(-14deg)}
+.ms.flow .bd{background:radial-gradient(circle at 32% 28%,#b8f3ff,#22b7d1 55%,#0d7c8f);clip-path:polygon(50% 0,95% 25%,95% 75%,50% 100%,5% 75%,5% 25%)}
+.ms.flow .ant{position:absolute;left:50%;top:-7px;width:2px;height:8px;background:#0d7c8f;transform:translateX(-50%);border-radius:1px}
+.ms.flow .ant:after{content:"";position:absolute;left:50%;top:-5px;width:6px;height:6px;background:#7ef0ff;border:1.5px solid #0d7c8f;border-radius:50%;transform:translateX(-50%)}
+.ms.echo img{width:100%;height:100%;object-fit:cover;border-radius:22%}
+.ms.echo .bd{display:none}
+.ms .crown{display:none;position:absolute;top:-5px;right:-6px;z-index:3;width:13px;height:11px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}
+.ms.lead .crown{display:block}
+.ms.lg .crown,.ms.xl .crown{width:20px;height:16px;top:-8px;right:-8px}
+.ms .live{position:absolute;top:-1px;left:-1px;width:8px;height:8px;background:#22c56b;border:2px solid #fff;border-radius:50%;z-index:3}
+.ms.lg .live,.ms.xl .live{width:12px;height:12px}
+.ms .live.busy{background:#f0b22a}
+.ms .live.off{background:#c5c0d4}
+
+/* rail */
+.rail{background:rgba(26,20,48,.92);color:#f4f1ff;display:flex;flex-direction:column;align-items:center;padding:14px 0 16px;gap:8px}
+.mark{width:32px;height:32px;border-radius:10px;background:linear-gradient(145deg,#8a6dff,#ff6bac);box-shadow:0 6px 16px rgba(120,60,200,.28);margin-bottom:6px;position:relative}
+.mark:after{content:"";position:absolute;inset:8px 7px 13px;border:2px solid #fff;border-bottom:0;border-radius:7px 7px 0 0;opacity:.9}
+.pr{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;font-weight:750;font-size:11px;color:#1a1430;position:relative}
+.pr.on{box-shadow:0 0 0 2px #1a1430,0 0 0 4px #efeaff}
+.p-ka{background:#c4b5fd}.p-vl{background:#93c5fd}.p-ds{background:#fdba74}
+.pr-add{width:32px;height:32px;border-radius:10px;border:1px dashed rgba(255,255,255,.3);color:#c8c0e0;font-size:18px;line-height:1}
+.rail .sp{flex:1}
+.me{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#2a2438,#6b4cff);display:grid;place-items:center;font-size:9px;font-weight:700}
+
+/* chats */
+.chats{background:var(--glass);backdrop-filter:blur(18px) saturate(1.2);border-right:1px solid rgba(255,255,255,.7);display:flex;flex-direction:column;min-height:0}
+.proj-h{padding:14px 14px 12px;border-bottom:1px solid var(--line)}
+.k{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.proj-h h1{font-size:18px;font-weight:750;letter-spacing:-.03em;margin:2px 0 8px}
+.owner{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:12px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8)}
+.owner .lbl{font-size:10px;color:var(--muted);font-weight:650}
+.owner b{display:block;font-size:12.5px;font-weight:750}
+.owner .sub{font-size:11px;color:var(--muted)}
+.team-btn{margin-left:auto;height:26px;padding:0 8px;border-radius:8px;background:var(--accent-soft);color:#4b35c7;font-size:11.5px;font-weight:700}
+.team-btn.on{background:#6b4cff;color:#fff}
+.chats .list{padding:8px;flex:1;overflow:hidden}
+.chats .list .k{padding:6px 8px 8px}
+.chat-item{display:flex;flex-wrap:wrap;align-items:flex-start;gap:2px 4px;padding:8px;border-radius:14px;margin-bottom:4px}
+.chat-item .row1{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.chat-item .meta{flex:1;min-width:0}
+.chat-item b{display:block;font-size:13px;font-weight:750}
+.chat-item i{display:block;font-style:normal;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item.on{background:rgba(107,76,255,.12);box-shadow:inset 0 0 0 1px rgba(107,76,255,.18)}
+.stack{display:flex;margin-top:4px;padding-left:32px;flex:1 0 100%}
+.stack .ms{width:20px;height:20px;margin-left:-6px}
+.stack .ms:first-child{margin-left:0}
+.bdg{min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--accent);color:#fff;font-size:10px;font-weight:800;display:grid;place-items:center}
+.bdg.q{background:#ece9f5;color:var(--muted)}
+.gear{width:22px;height:22px;border-radius:7px;color:var(--faint);display:grid;place-items:center;flex:0 0 22px;margin-top:2px}
+.gear:hover{background:rgba(255,255,255,.8);color:var(--ink)}
+
+/* stage */
+.stage{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{height:56px;display:flex;align-items:center;gap:8px;padding:0 12px 0 8px;background:rgba(255,255,255,.45);border-bottom:1px solid rgba(255,255,255,.7);backdrop-filter:blur(16px)}
+.tabs{display:flex;gap:2px;flex:1;min-width:0}
+.tab{padding:0 10px;height:32px;border-radius:10px;font-size:12.5px;font-weight:650;color:var(--muted);display:flex;align-items:center;white-space:nowrap}
+.tab.on{background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(40,20,80,.08)}
+.acts{display:flex;align-items:center;gap:8px}
+.btn{height:32px;padding:0 12px;border-radius:10px;font-weight:700;font-size:12px;background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.9);display:inline-flex;align-items:center;gap:6px}
+.btn .ico{width:14px;height:14px}
+.btn.primary{background:#1a1430;color:#fff;border-color:#1a1430}
+.btn.danger{background:#ffecec;color:#c03636;border-color:#f8c8c8}
+.tog{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.9);padding:4px 10px 4px 12px;border-radius:999px;font-weight:650;font-size:12px}
+.switch{width:30px;height:16px;background:#6b4cff;border-radius:99px;position:relative}
+.switch:after{content:"";position:absolute;top:2px;right:2px;width:12px;height:12px;background:#fff;border-radius:50%}
+.meter-wrap{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted)}
+.meter{width:64px;height:6px;background:rgba(40,20,70,.1);border-radius:99px;overflow:hidden}
+.meter i{display:block;width:62%;height:100%;border-radius:99px;background:linear-gradient(90deg,#6b4cff,#ff6bac)}
+.stage-body{flex:1;display:grid;grid-template-columns:1fr 352px;min-height:0}
+.workspace{min-width:0;min-height:0;padding:12px;overflow:hidden}
+.panel{display:none;height:100%}
+.panel.on{display:flex;flex-direction:column}
+.card{background:var(--card);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.85);box-shadow:var(--shadow);border-radius:var(--r)}
+.panel h2{font-size:15px;font-weight:750;margin-bottom:2px}
+.sub{font-size:12px;color:var(--muted)}
+.pad{padding:14px}
+
+.board{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;flex:1;min-height:0}
+.col{background:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.7);border-radius:14px;padding:8px;overflow:hidden}
+.col h3{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:750;display:flex;justify-content:space-between;padding:4px 4px 8px}
+.col h3 b{color:var(--accent)}
+.ticket{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}
+.ticket .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.tag{font-size:10px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;padding:2px 6px;border-radius:6px}
+.t-dev{color:#4b35c7;background:#efeaff}
+.t-des{color:#b03070;background:#fde8f3}
+.t-qa{color:#0e6e64;background:#e8faf5}
+.t-smm{color:#b35a18;background:#ffedd9}
+.ticket h4{font-size:13px;font-weight:700;margin-bottom:4px}
+.ticket p{font-size:11.5px;color:var(--muted)}
+.who{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11.5px;color:var(--muted);font-weight:650}
+.task-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.task{display:grid;grid-template-columns:16px 1fr auto;gap:10px;align-items:center;background:var(--card);border:1px solid rgba(255,255,255,.85);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow)}
+.st{font-size:11px;font-weight:750;padding:2px 8px;border-radius:99px}
+.st.wip{background:#efeaff;color:#4b35c7}
+.st.wait{background:#fff6e0;color:#9a6a00}
+.st.done{background:var(--ok-soft);color:#0e6e64}
+.files-split{display:grid;grid-template-columns:1fr 1.2fr;gap:12px;flex:1;min-height:0;margin-top:10px}
+.tree{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;line-height:1.75;color:#3a3454;padding:12px 14px}
+.tree .on{background:var(--accent-soft);color:#4b35c7;font-weight:700;padding:0 4px;border-radius:4px}
+.tip{font-size:11.5px;color:var(--muted);margin-top:6px;padding:0 4px}
+.commits{list-style:none;margin:8px 0}
+.commits li{display:grid;grid-template-columns:64px 1fr;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+.sha{font-family:"IBM Plex Mono",monospace;font-size:11px;color:#4b35c7;font-weight:650}
+.commits small{display:block;color:var(--faint);font-size:11px}
+.diff{background:#1a1430;color:#ece8ff;border-radius:12px;padding:10px 12px;margin-top:8px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.55;white-space:nowrap;overflow:hidden}
+.add{color:#7dffa8}.del{color:#ff9b9b}.ctx{color:#b4aecc}
+.md-body{padding:14px 16px;flex:1;overflow:hidden}
+.md-body h3{font-size:18px;margin-bottom:8px}
+.md-body p,.md-body li{font-size:13px;color:#3a3454}
+.md-body ul{padding-left:18px;margin:8px 0}
+.md-body code{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--accent-soft);color:#4b35c7;padding:0 5px;border-radius:4px}
+.rules .opt{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.chk{width:16px;height:16px;border-radius:5px;background:var(--accent);position:relative;flex-shrink:0;margin-top:2px}
+.chk:after{content:"";position:absolute;left:5px;top:2px;width:5px;height:8px;border:1.5px solid #fff;border-top:0;border-left:0;transform:rotate(45deg)}
+.chk.off{background:#fff;box-shadow:inset 0 0 0 1.5px var(--line2)}
+.chk.off:after{display:none}
+
+.thread{background:var(--card);backdrop-filter:blur(18px);border-left:1px solid rgba(255,255,255,.8);display:flex;flex-direction:column;min-height:0}
+.th-h{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.th-h .meta{flex:1;min-width:0}
+.th-h b{display:block;font-size:13.5px;font-weight:750}
+.th-h span.desc{font-size:11px;color:var(--muted)}
+.lead-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#9a6a00;background:#fff6e0;border:1px solid #f3e0ad;padding:3px 8px 3px 4px;border-radius:99px}
+.msgs{flex:1;padding:12px;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+.msg{display:grid;grid-template-columns:28px 1fr;gap:8px}
+.msg .nm{font-size:11.5px;font-weight:750}
+.msg .nm time{font-weight:600;color:var(--faint);margin-left:6px}
+.msg .bubble{margin-top:2px;background:rgba(255,255,255,.7);border:1px solid var(--line);border-radius:4px 12px 12px 12px;padding:7px 10px;font-size:12.5px}
+.composer{padding:10px 12px 12px;border-top:1px solid var(--line)}
+.composer textarea{width:100%;min-height:56px;resize:none;border-radius:12px;border:1px solid var(--line2);background:rgba(255,255,255,.8);padding:8px 10px}
+.composer .row{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.send{height:32px;padding:0 14px;border-radius:10px;background:linear-gradient(135deg,#6b4cff,#8a4dff);color:#fff;font-weight:750;box-shadow:0 6px 14px rgba(107,76,255,.25)}
+
+.project-panel{position:relative;height:100%;display:grid;grid-template-columns:1fr;gap:12px}
+.project-panel.picked{grid-template-columns:1fr 280px}
+.orbit-wrap{position:relative;height:100%}
+.orbit-head{position:absolute;left:12px;top:10px;z-index:4;max-width:280px}
+.orbit-wrap{overflow:visible;padding-bottom:8px;display:flex;flex-direction:column}
+.project-panel.picked .sat .rl{display:none}
+.project-panel.picked .orbit-head{margin-top:auto}
+.project-panel.picked .orbit-box{margin-bottom:auto}
+.project-panel.picked .sat .ms.lg{width:52px;height:52px}
+.project-panel.picked .chief .ms.xl{width:66px;height:66px}
+.project-panel.picked .sat{width:68px;transform:translate(-50%,-26px)}
+.project-panel.picked .sat:hover{transform:translate(-50%,-30px)}
+.project-panel.picked .sat.on{transform:translate(-50%,-26px) scale(1.12)}
+.project-panel.picked .chief{width:80px;transform:translate(-50%,-33px)}
+.project-panel.picked .chief.on{transform:translate(-50%,-33px) scale(1.08)}
+.orbit-box{position:relative;width:100%;max-width:680px;aspect-ratio:680/560;height:auto;margin:16px auto 0}
+.orbit-box svg.rings{position:absolute;inset:0;width:100%;height:100%}
+.sat{position:absolute;width:72px;text-align:center;z-index:4;cursor:pointer;transition:opacity .2s,transform .2s;transform:translate(-50%,-36px)}
+.sat .nm{display:block;font-size:11.5px;font-weight:750;margin-top:4px;line-height:1.15}
+.sat .rl{display:block;font-size:10px;color:var(--muted);font-weight:600}
+.sat:hover{transform:translate(-50%,-40px)}
+.project-panel.picked .sat:not(.on){opacity:.5}
+.sat.on{z-index:6;transform:translate(-50%,-36px) scale(1.08)}
+.sat.on .nm{color:var(--accent)}
+.project-panel.picked .orbit-head{position:static;max-width:none;padding:12px 14px 0}
+.project-panel.picked .orbit-box{margin-top:4px}
+.chief{position:absolute;left:50%;top:50%;width:88px;text-align:center;z-index:5;cursor:pointer;transition:opacity .2s;transform:translate(-50%,-44px)}
+.chief.on{z-index:6;transform:translate(-50%,-44px) scale(1.06)}
+.chief .nm{display:block;font-size:12px;font-weight:800;margin-top:6px}
+.chief .rl{font-size:10px;color:#9a6a00;font-weight:700}
+.project-panel.picked .chief:not(.on){opacity:.5}
+.s-lint{left:50%;top:14.286%}
+.s-pix{left:74.441%;top:24.75%}
+.s-echo{left:84.559%;top:50%}
+.s-znak{left:74.441%;top:75.25%}
+.s-qa{left:50%;top:85.714%}
+.s-bit{left:25.559%;top:75.25%}
+.s-rev{left:15.441%;top:50%}
+.s-flow{left:25.559%;top:24.75%}
+.bot-card{display:none;overflow:hidden;padding:14px}
+.project-panel.picked .bot-card{display:flex;flex-direction:column}
+.bot-card .hc{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.bot-card h3{font-size:16px;font-weight:750}
+.bot-card .role{font-size:11.5px;color:var(--muted)}
+.close-x{margin-left:auto;width:24px;height:24px;border-radius:8px;color:var(--muted);display:grid;place-items:center}
+.close-x:hover{background:var(--accent-soft)}
+.sec{margin:8px 0}
+.sec h4{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:750;margin-bottom:6px}
+.prog{height:6px;background:rgba(40,20,70,.1);border-radius:99px;overflow:hidden;margin-top:6px}
+.prog i{display:block;height:100%;background:#6b4cff;border-radius:99px}
+.art{display:flex;flex-wrap:wrap;gap:4px}
+.chip{font-size:11px;font-weight:650;padding:3px 7px;border-radius:8px;background:var(--accent-soft);color:#4b35c7}
+.chip.file{font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+.q{background:#fff6e0;border:1px solid #f3e0ad;border-radius:10px;padding:8px;font-size:12.5px;margin-bottom:6px}
+.q .ans{margin-top:6px;height:24px;padding:0 8px;border-radius:7px;background:#1a1430;color:#fff;font-size:11px;font-weight:700}
+.trow{display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:12.5px;border-bottom:1px solid var(--line)}
+.chat-pills{display:flex;flex-wrap:wrap;gap:4px}
+.pill{font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.8);border:1px solid var(--line);font-weight:650}
+
+.modal-bg{display:none;position:absolute;inset:0;z-index:20;background:rgba(26,20,48,.42);backdrop-filter:blur(4px);align-items:center;justify-content:center}
+body.modal-open .modal-bg{display:flex}
+.modal{width:560px;max-height:820px;background:rgba(255,255,255,.94);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.95);border-radius:20px;box-shadow:0 24px 60px rgba(40,20,80,.22);padding:20px 22px 18px;overflow:hidden}
+.modal h2{font-size:18px;font-weight:750;margin:4px 0}
+.modal .sec{margin-top:12px}
+label.l{display:block;font-size:10.5px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+.field,.modal select,.modal textarea{width:100%;background:#fff;border:1px solid var(--line2);border-radius:10px;padding:8px 10px}
+.modal textarea{min-height:52px;resize:none}
+.members{display:flex;flex-wrap:wrap;gap:6px}
+.member{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 4px;border-radius:99px;background:#fff;border:1px solid var(--line2);font-size:12px;font-weight:650}
+.member.on{background:var(--accent-soft);border-color:#d8ccff}
+.modal .acts{justify-content:flex-end;margin-top:14px;display:flex;gap:8px}
+.tog-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid var(--line)}
+.chat-info{display:flex;flex-direction:column;gap:10px;height:100%}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:1}
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <nav class="rail">
+    <div class="mark" title="Пульт"></div>
+    <button class="pr p-ka on" title="Demo Game">D</button>
+    <button class="pr p-vl" title="Demo Side">S</button>
+    <button class="pr p-ds" title="Demo Club">C</button>
+    <button class="pr-add" title="Новый проект">+</button>
+    <span class="sp"></span>
+    <div class="me" title="владелец">AL</div>
+  </nav>
+
+  <aside class="chats">
+    <div class="proj-h">
+      <div class="k">Проект</div>
+      <h1>Demo Game</h1>
+      <div class="owner">
+        <span class="ms ava md lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span>
+        <div>
+          <div class="lbl">Главный в проекте</div>
+          <b>Ава</b>
+          <div class="sub">отвечает за результат</div>
+        </div>
+        <button class="team-btn" id="btn-team" type="button">Команда</button>
+      </div>
+    </div>
+    <div class="list">
+      <div class="k">Чаты проекта</div>
+
+      <div class="chat-item on" data-chat="dev">
+        <div class="row1">
+          <span class="ms bit  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span>
+          <div class="meta"><b>Сборка</b><i>Бит · превью готово к ревью</i></div>
+          <span class="bdg">3</span>
+        </div>
+        <button class="gear" type="button" data-open-modal title="Настройки чата"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/></svg></button>
+        <div class="stack">
+          <span class="ms bit"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="ms lint"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="ms rev"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="ms qa"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="ms ava"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span>
+        </div>
+      </div>
+
+      <div class="chat-item" data-chat="design">
+        <div class="row1">
+          <span class="ms pix  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="spark">✦</span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span>
+          <div class="meta"><b>Оформление</b><i>Пикс, Знак</i></div>
+          <span class="bdg q">1</span>
+        </div>
+        <button class="gear" type="button" data-open-modal title="Настройки чата"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/></svg></button>
+        <div class="stack"><span class="ms pix"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="spark">✦</span><span class="live"></span></span><span class="ms znak"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="mark">✓</span><span class="live"></span></span></div>
+      </div>
+
+      <div class="chat-item" data-chat="qa">
+        <div class="row1">
+          <span class="ms qa  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span>
+          <div class="meta"><b>Проверка</b><i>Тэст, Знак, Рев</i></div>
+        </div>
+        <button class="gear" type="button" data-open-modal title="Настройки чата"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/></svg></button>
+        <div class="stack"><span class="ms qa"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="ms znak"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="mark">✓</span><span class="live"></span></span><span class="ms rev"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span></div>
+      </div>
+
+      <div class="chat-item" data-chat="smm">
+        <div class="row1">
+          <span class="ms echo  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span>
+          <div class="meta"><b>Анонсы</b><i>Эхо, Флоу</i></div>
+        </div>
+        <button class="gear" type="button" data-open-modal title="Настройки чата"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/></svg></button>
+        <div class="stack"><span class="ms echo"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="ms flow"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="ant"></span><span class="live"></span></span></div>
+      </div>
+
+      <div class="chat-item" data-chat="site">
+        <div class="row1">
+          <span class="ms ava"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span>
+          <div class="meta"><b>Витрина</b><i>В этом проекте не используется</i></div>
+        </div>
+        <button class="gear" type="button" data-open-modal title="Настройки чата"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/></svg></button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="stage">
+    <header class="top">
+      <nav class="tabs">
+        <button class="tab" data-view="chat" type="button">Чат</button>
+        <button class="tab" data-view="tasks" type="button">Задания</button>
+        <button class="tab on" data-view="kanban" type="button">Канбан</button>
+        <button class="tab" data-view="files" type="button">Файлы</button>
+        <button class="tab" data-view="git" type="button">Git</button>
+        <button class="tab" data-view="docs" type="button">Документация</button>
+        <button class="tab" data-view="rules" type="button">Правила</button>
+      </nav>
+      <div class="acts">
+        <div class="tog">Экономия токенов <span class="switch"></span></div>
+        <div class="meter-wrap">62% <span class="meter"><i></i></span></div>
+        <button class="btn" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8.5l3.2 3.2L13 4.5"/></svg>Проверить</button>
+        <button class="btn primary" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4" cy="3.5" r="1.3"/><circle cx="4" cy="12.5" r="1.3"/><circle cx="12" cy="8" r="1.3"/><path d="M4 5v6.1M4 8h5a2.9 2.9 0 0 0 2.9-2.9"/></svg>Смержить</button>
+        <button class="btn danger" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 6.5H2.2A6.2 6.2 0 1 1 3.2 11.2"/><path d="M3.5 6.5L1.6 4.4M3.5 6.5l1.9-2.1"/></svg>Откатить</button>
+      </div>
+    </header>
+
+    <div class="stage-body">
+      <main class="workspace">
+
+        <section class="panel" data-panel="chat">
+          <div class="chat-info">
+            <div class="card pad">
+              <h2>Чат «Сборка»</h2>
+              <p class="sub">Контекст общий, работа только в этом направлении. Переписка всегда справа.</p>
+            </div>
+            <div class="info-grid">
+              <div class="card pad">
+                <div class="k">Главный в чате</div>
+                <div class="who" style="margin-top:10px">
+                  <span class="ms bit lg lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg></span>
+                  <div><b>Бит</b><div class="sub">отвечает за результат</div></div>
+                </div>
+                <p class="sub" style="margin-top:12px">Участники: Бит, Линт, Рев, Тэст, Ава.</p>
+              </div>
+              <div class="card pad">
+                <div class="k">Закреплённые файлы</div>
+                <div class="art" style="margin-top:10px">
+                  <span class="chip file">src/app.txt</span>
+                  <span class="chip file">layout.txt</span>
+                  <span class="chip file">ACCEPTANCE.md</span>
+                </div>
+                <p class="sub" style="margin-top:12px">Задание уходит исполнителю и главному в этом направлении, остальные не просыпаются.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="tasks">
+          <h2>Задания</h2>
+          <p class="sub">Demo Game · 5 в работе, 2 ждут вашей проверки</p>
+          <div class="task-list">
+            <div class="task"><span class="ms bit"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span><div><b>Превью export-пресета в доке</b><div class="sub">Сборка · Бит</div></div><span class="st wip">в работе</span></div>
+            <div class="task"><span class="ms qa"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span><div><b>Сценарий Demo Engine 1.0</b><div class="sub">Проверка · Тэст</div></div><span class="st wip">в работе</span></div>
+            <div class="task"><span class="ms znak"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="mark">✓</span></span><div><b>UI editor dock</b><div class="sub">Оформление · Знак, 3 замечания</div></div><span class="st wait">на проверке</span></div>
+            <div class="task"><span class="ms rev"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span><div><b>PR #3 · доказательство</b><div class="sub">Проверка · Рев</div></div><span class="st wait">ждёт вас</span></div>
+            <div class="task"><span class="ms echo"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span><div><b>Черновик анонса пресетов</b><div class="sub">Анонсы · Эхо</div></div><span class="st wait">ждёт ваш ОК</span></div>
+            <div class="task"><span class="ms bit"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span><div><b>Фикс пути экспорта 4.3</b><div class="sub">Сборка · bcd2345</div></div><span class="st done">готово</span></div>
+          </div>
+        </section>
+
+        <section class="panel on" data-panel="kanban">
+          <div class="board">
+            <div class="col">
+              <h3>Очередь <b>3</b></h3>
+              <div class="ticket"><div class="top"><span class="tag t-smm">Анонсы</span></div><h4>Черновик анонса пресетов</h4><p>Пост для канала, без публикации — сначала ваш ОК.</p><div class="who"><span class="ms echo  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg></span> Эхо · главный</div></div>
+              <div class="ticket"><div class="top"><span class="tag t-des">Оформление</span></div><h4>Иконки пресетов в доке</h4><p>16×16 и 32×32, в стиле theme.txt.</p><div class="who"><span class="ms pix  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="spark">✦</span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg></span> Пикс</div></div>
+              <div class="ticket"><div class="top"><span class="tag t-dev">Витрина</span></div><h4>Нет активного модуля</h4><p>Для лендинга откройте проект Demo Side.</p></div>
+            </div>
+            <div class="col">
+              <h3>В работе <b>3</b></h3>
+              <div class="ticket" style="box-shadow:inset 0 0 0 1px rgba(107,76,255,.25)">
+                <div class="top"><span class="tag t-dev">Сборка</span></div>
+                <h4>Превью export-пресета в доке</h4>
+                <p>Превью видно; тесты зелёные. src/app.txt, layout.txt.</p>
+                <div class="who"><span class="ms bit  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg></span> Бит · 70%</div>
+              </div>
+              <div class="ticket"><div class="top"><span class="tag t-qa">Проверка</span></div><h4>Сценарий Demo Engine 1.0</h4><p>Покрыть путь экспорта, который чинил Бит.</p><div class="who"><span class="ms qa  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg></span> Тэст</div></div>
+              <div class="ticket"><div class="top"><span class="tag t-dev">Сборка</span></div><h4>Сверить ACCEPTANCE.md</h4><p>Критерии превью уже в cde3456.</p><div class="who"><span class="ms lint"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Линт</div></div>
+            </div>
+            <div class="col">
+              <h3>На проверке <b>2</b></h3>
+              <div class="ticket"><div class="top"><span class="tag t-des">Оформление</span></div><h4>UI editor dock</h4><p>Знак оставил 3 замечания. Ждёт правок Пикс.</p><div class="who"><span class="ms znak"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="mark">✓</span></span> Знак · 12:18</div></div>
+              <div class="ticket"><div class="top"><span class="tag t-qa">Проверка</span></div><h4>PR #3 · доказательство</h4><p>Рев не мержит, пока нет записи сценария.</p><div class="who"><span class="ms rev"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Рев</div></div>
+            </div>
+            <div class="col">
+              <h3>Готово <b>2</b></h3>
+              <div class="ticket"><div class="top"><span class="tag t-dev">Сборка</span></div><h4>Фикс пути экспорта 4.3</h4><p>Коммит bcd2345 вошёл в ветку.</p><div class="who"><span class="ms bit"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Бит</div></div>
+              <div class="ticket"><div class="top"><span class="tag t-dev">Проектирование</span></div><h4>Состав модулей аддона</h4><p>plugin, presets, dock, theme — зафиксировал Ава.</p><div class="who"><span class="ms ava  lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg></span> Ава</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="files">
+          <h2>Файлы и связи</h2>
+          <p class="sub">Узел показывает, за что отвечает файл. Чат «Сборка» остаётся справа.</p>
+          <div class="files-split">
+            <div class="card tree">
+              ▾ demo-game/<br>
+              &nbsp;&nbsp;▾ addons/demo-game/<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;plugin.cfg<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;plugin.gd<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;▾ export/ &nbsp;<span class="on">src/app.txt</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;▾ ui/ &nbsp; layout.txt &nbsp; theme.txt<br>
+              &nbsp;&nbsp;▾ docs/ &nbsp; README.md &nbsp; ACCEPTANCE.md &nbsp; DESIGN.md
+            </div>
+            <div class="card" style="padding:12px">
+              <svg viewBox="0 0 420 220" width="100%" height="220" xmlns="http://www.w3.org/2000/svg">
+                <line x1="210" y1="36" x2="90" y2="110" stroke="rgba(80,50,140,.28)"/>
+                <line x1="210" y1="36" x2="330" y2="110" stroke="rgba(80,50,140,.28)"/>
+                <line x1="90" y1="128" x2="210" y2="176" stroke="rgba(80,50,140,.28)"/>
+                <line x1="330" y1="128" x2="210" y2="176" stroke="rgba(80,50,140,.28)"/>
+                <rect x="150" y="16" width="120" height="30" rx="8" fill="#6b4cff"/>
+                <text x="210" y="36" text-anchor="middle" fill="#fff" font-size="12" font-family="Manrope,sans-serif" font-weight="700">plugin.gd</text>
+                <rect x="30" y="104" width="120" height="30" rx="8" fill="#efeaff" stroke="#6b4cff"/>
+                <text x="90" y="124" text-anchor="middle" fill="#4b35c7" font-size="12" font-family="Manrope,sans-serif" font-weight="700">src/app.txt</text>
+                <rect x="270" y="104" width="120" height="30" rx="8" fill="#fff" stroke="#ff5ea0"/>
+                <text x="330" y="124" text-anchor="middle" fill="#b03070" font-size="12" font-family="Manrope,sans-serif" font-weight="700">layout.txt</text>
+                <rect x="150" y="168" width="120" height="26" rx="8" fill="#fff" stroke="rgba(80,50,140,.25)"/>
+                <text x="210" y="186" text-anchor="middle" fill="#5e5778" font-size="11" font-family="Manrope,sans-serif">ACCEPTANCE.md</text>
+              </svg>
+              <p class="tip">src/app.txt — список пресетов и их превью. Вызывается из plugin.gd, отдаёт кадр в layout.txt.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="git">
+          <div class="card pad" style="flex:1">
+            <h2>Git · изменения</h2>
+            <p class="sub">feat/demo-export → main · 3 коммита · +128 / −41</p>
+            <ul class="commits">
+              <li><span class="sha">abc1234</span><div>Превью пресетов в editor dock<small>Бит · 09:15 UTC</small></div></li>
+              <li><span class="sha">bcd2345</span><div>Фикс пути экспорта для Demo Engine 1.0<small>Бит · 2 ч назад</small></div></li>
+              <li><span class="sha">cde3456</span><div>Критерии в ACCEPTANCE.md<small>Линт · вчера</small></div></li>
+            </ul>
+            <div class="diff">
+              <div class="ctx">addons/demo-game/export/src/app.txt &nbsp; +18 −6</div>
+              <div class="add">+ export var preview_enabled := true</div>
+              <div class="add">+ func build_preset_preview(id) -&gt; Texture2D:</div>
+              <div class="del">- func _legacy_export(path):</div>
+              <div class="ctx">&nbsp;&nbsp;func apply_preset(idx: int) -&gt; void:</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="docs">
+          <div class="card md-body">
+            <div class="k">README.md</div>
+            <h3>Demo Game — модуль демо</h3>
+            <p>Аддон для экспорта и работы с пресетами прямо из редактора.</p>
+            <p><b>Состав.</b></p>
+            <ul>
+              <li><code>plugin.gd</code> — регистрация дока и команд</li>
+              <li><code>export/src/app.txt</code> — пресеты и превью</li>
+              <li><code>ui/layout.txt</code> — панель в редакторе</li>
+            </ul>
+            <p>Задачу можно принимать, если превью видно в доке, тесты зелёные, и Рев видит доказательство в PR #3.</p>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="rules">
+          <div class="card pad rules" style="flex:1">
+            <h2>Правила проекта</h2>
+            <p class="sub">Главный в проекте — Ава. Он отвечает за итоговый результат.</p>
+            <div class="opt"><span class="chk"></span>Будить только выбранного или упомянутого бота</div>
+            <div class="opt"><span class="chk"></span>Короткий контекст, без полной истории чата</div>
+            <div class="opt"><span class="chk"></span>Ссылки на файлы вместо переписки</div>
+            <div class="opt"><span class="chk"></span>Лимит ответа: короткий, пока не попросите иначе</div>
+            <div class="opt"><span class="chk off"></span>Не будить ботов на паузе (Флоу в этом проекте)</div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="project">
+          <div class="project-panel" id="orbit-panel">
+            <div class="orbit-wrap card">
+              <div class="orbit-head">
+                <h2>Команда Demo Game</h2>
+                <p class="sub">Ава — главный в проекте, отвечает за результат. Нажмите на бота — откроется его карточка.</p>
+              </div>
+              <div class="orbit-box" id="orbit">
+                <svg class="rings" viewBox="0 0 680 560" xmlns="http://www.w3.org/2000/svg">
+                  <ellipse cx="340" cy="280" rx="235" ry="200" fill="none" stroke="rgba(107,76,255,0.2)" stroke-width="1.5" stroke-dasharray="6 8"/>
+                  <ellipse cx="340" cy="280" rx="150" ry="128" fill="none" stroke="rgba(255,94,160,0.14)" stroke-width="1" stroke-dasharray="3 7"/>
+                  <g stroke="rgba(80,50,140,0.28)" stroke-width="1.4">
+                    <line x1="340" y1="280" x2="340.0" y2="80.0"/>
+                    <line x1="340" y1="280" x2="506.2" y2="138.6"/>
+                    <line x1="340" y1="280" x2="575.0" y2="280.0"/>
+                    <line x1="340" y1="280" x2="506.2" y2="421.4"/>
+                    <line x1="340" y1="280" x2="340.0" y2="480.0"/>
+                    <line x1="340" y1="280" x2="173.8" y2="421.4"/>
+                    <line x1="340" y1="280" x2="105.0" y2="280.0"/>
+                    <line x1="340" y1="280" x2="173.8" y2="138.6"/>
+                  </g>
+                </svg>
+                <div class="chief" data-bot="ava">
+                  <span class="ms ava xl lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span>
+                  <span class="nm">Ава</span>
+                  <span class="rl">главный в проекте</span>
+                </div>
+                <div class="sat s-lint" data-bot="lint"><span class="ms lint lg"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="nm">Линт</span><span class="rl">код / диспетчер</span></div>
+                <div class="sat s-pix" data-bot="pix"><span class="ms pix lg lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="spark">✦</span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span><span class="nm">Пикс</span><span class="rl">UI · гл. в «Оформление»</span></div>
+                <div class="sat s-echo" data-bot="echo"><span class="ms echo lg lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span><span class="nm">Эхо</span><span class="rl">SMM · гл. в «Анонсы»</span></div>
+                <div class="sat s-znak" data-bot="znak"><span class="ms znak lg"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="mark">✓</span><span class="live busy"></span></span><span class="nm">Знак</span><span class="rl">дизайн-Проверка</span></div>
+                <div class="sat s-qa" data-bot="qa"><span class="ms qa lg lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live"></span></span><span class="nm">Тэст</span><span class="rl">Проверка · гл. в «Проверка»</span></div>
+                <div class="sat s-bit" data-bot="bit"><span class="ms bit lg lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg><span class="live busy"></span></span><span class="nm">Бит</span><span class="rl">код · гл. в «Сборка»</span></div>
+                <div class="sat s-rev" data-bot="rev"><span class="ms rev lg"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="live"></span></span><span class="nm">Рев</span><span class="rl">ревизор</span></div>
+                <div class="sat s-flow" data-bot="flow"><span class="ms flow lg"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="ant"></span><span class="live off"></span></span><span class="nm">Флоу</span><span class="rl">ресёрч · пауза</span></div>
+              </div>
+            </div>
+
+            <aside class="bot-card card" id="bot-card">
+              <div class="hc">
+                <span id="bc-ava"></span>
+                <div>
+                  <h3 id="bc-name">Бит</h3>
+                  <div class="role" id="bc-role"></div>
+                </div>
+                <button class="close-x" type="button" id="bc-close" title="Закрыть">×</button>
+              </div>
+              <div class="sec"><h4>Текущая работа</h4><div id="bc-work"></div><div class="prog"><i id="bc-prog" style="width:70%"></i></div></div>
+              <div class="sec"><h4>Последние результаты</h4><div class="art" id="bc-arts"></div></div>
+              <div class="sec"><h4>Вопросы владельцу</h4><div id="bc-qs"></div></div>
+              <div class="sec"><h4>Задачи</h4><div id="bc-tasks"></div></div>
+              <div class="sec"><h4>Чаты</h4><div class="chat-pills" id="bc-chats"></div></div>
+            </aside>
+          </div>
+        </section>
+      </main>
+
+      <aside class="thread">
+        <div class="th-h">
+          <span class="ms bit md lead"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><svg class="crown" viewBox="0 0 20 16"><path d="M1 13h18L17 6l-4 3L10 2 7 9 3 6z" fill="#F0B22A"/><rect x="1" y="13" width="18" height="3" rx="1" fill="#E0A020"/></svg></span>
+          <div class="meta">
+            <b>Сборка</b>
+            <span class="desc">Бит отвечает за результат</span>
+          </div>
+          <span class="lead-pill"><span class="ms bit"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> главный</span>
+        </div>
+        <div class="msgs">
+          <div class="msg">
+            <span class="ms lint md"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span>
+            <div><div class="nm">Линт <time>вчера</time></div><div class="bubble">Обновил критерии в ACCEPTANCE.md: превью должно быть видно в доке без дополнительных флагов.</div></div>
+          </div>
+          <div class="msg">
+            <span class="ms bit md"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span>
+            <div><div class="nm">Бит <time>12:41</time></div><div class="bubble">Превью пресетов в доке готово, запушил abc1234. Можно смотреть.</div></div>
+          </div>
+          <div class="msg">
+            <span class="ms rev md"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span>
+            <div><div class="nm">Рев <time>12:52</time></div><div class="bubble">В PR #3 нет доказательства сценария. Не мержу, пока не увижу запись или тест.</div></div>
+          </div>
+          <div class="msg">
+            <span class="ms bit md"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span>
+            <div><div class="nm">Бит <time>13:04</time></div><div class="bubble">Могу добавить снапшот-тест на превью. Владелец, покрываем?</div></div>
+          </div>
+        </div>
+        <div class="composer">
+          <textarea placeholder="Сообщение в «Сборка». При экономии токенов проснётся только упомянутый бот."></textarea>
+          <div class="row">
+            <span class="sub">лимит ответа: короткий</span>
+            <button class="send" type="button">Отправить</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" role="dialog" aria-labelledby="mh">
+    <div class="k">Настройки чата</div>
+    <h2 id="mh">Сборка</h2>
+    <p class="sub">Боты знают контекст проекта, но работают только в этом направлении.</p>
+
+    <div class="sec" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><label class="l">Название</label><input class="field" value="Сборка"></div>
+      <div>
+        <label class="l">Направление</label>
+        <select><option selected>Сборка</option><option>Оформление</option><option>Проверка</option><option>Анонсы</option><option>Витрина</option></select>
+      </div>
+    </div>
+
+    <div class="sec">
+      <label class="l">Участники</label>
+      <div class="members">
+        <button class="member on" type="button"><span class="ms bit"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Бит</button>
+        <button class="member on" type="button"><span class="ms lint"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Линт</button>
+        <button class="member on" type="button"><span class="ms rev"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Рев</button>
+        <button class="member on" type="button"><span class="ms qa"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Тэст</button>
+        <button class="member on" type="button"><span class="ms ava"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Ава</button>
+        <button class="member" type="button"><span class="ms pix"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="spark">✦</span></span> Пикс</button>
+        <button class="member" type="button"><span class="ms znak"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="mark">✓</span></span> Знак</button>
+        <button class="member" type="button"><span class="ms echo"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span></span> Эхо</button>
+        <button class="member" type="button"><span class="ms flow"><span class="bd"><span class="eye l"><i></i></span><span class="eye r"><i></i></span><span class="mo"></span></span><span class="ant"></span></span> Флоу</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <label class="l">Главный в чате — отвечает за результат</label>
+      <select>
+        <option selected>Бит — Demo Game</option>
+        <option>Линт — код / диспетчер</option>
+        <option>Рев — ревизор</option>
+        <option>Ава — тимлид проекта</option>
+        <option>Тэст — Проверка</option>
+      </select>
+    </div>
+
+    <div class="sec">
+      <label class="l">Правила направления</label>
+      <textarea>Делают: код, тесты, ревью PR, правки по ACCEPTANCE.md.
+Не делают: дизайн макетов, посты и публикацию — это другие чаты.</textarea>
+    </div>
+
+    <div class="sec">
+      <label class="l">Источники контекста</label>
+      <div class="art">
+        <span class="chip file">src/app.txt</span>
+        <span class="chip file">layout.txt</span>
+        <span class="chip file">ACCEPTANCE.md</span>
+        <span class="chip file">README.md</span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <label class="l">Экономия токенов в этом чате</label>
+      <div class="tog-row">Будить только выбранного или упомянутого бота <span class="switch"></span></div>
+      <div class="tog-row">Лимит ответа: короткий <span class="switch"></span></div>
+    </div>
+
+    <div class="sec">
+      <label class="l">Уведомления</label>
+      <div class="tog-row">Новые сообщения в чате <span class="switch"></span></div>
+      <div class="tog-row">Вопросы, которые ждут вашего ответа <span class="switch"></span></div>
+    </div>
+
+    <div class="acts">
+      <button class="btn" type="button" id="modal-cancel">Отмена</button>
+      <button class="btn primary" type="button" id="modal-save">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const AVA = {"bit": "<span class=\"ms bit lg lead\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span><svg class=\"crown\" viewBox=\"0 0 20 16\"><path d=\"M1 13h18L17 6l-4 3L10 2 7 9 3 6z\" fill=\"#F0B22A\"/><rect x=\"1\" y=\"13\" width=\"18\" height=\"3\" rx=\"1\" fill=\"#E0A020\"/></svg></span>", "ava": "<span class=\"ms ava lg lead\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span><svg class=\"crown\" viewBox=\"0 0 20 16\"><path d=\"M1 13h18L17 6l-4 3L10 2 7 9 3 6z\" fill=\"#F0B22A\"/><rect x=\"1\" y=\"13\" width=\"18\" height=\"3\" rx=\"1\" fill=\"#E0A020\"/></svg></span>", "lint": "<span class=\"ms lint lg\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span></span>", "pix": "<span class=\"ms pix lg lead\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span><span class=\"spark\">✦</span><svg class=\"crown\" viewBox=\"0 0 20 16\"><path d=\"M1 13h18L17 6l-4 3L10 2 7 9 3 6z\" fill=\"#F0B22A\"/><rect x=\"1\" y=\"13\" width=\"18\" height=\"3\" rx=\"1\" fill=\"#E0A020\"/></svg></span>", "znak": "<span class=\"ms znak lg\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span><span class=\"mark\">✓</span></span>", "qa": "<span class=\"ms qa lg lead\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span><svg class=\"crown\" viewBox=\"0 0 20 16\"><path d=\"M1 13h18L17 6l-4 3L10 2 7 9 3 6z\" fill=\"#F0B22A\"/><rect x=\"1\" y=\"13\" width=\"18\" height=\"3\" rx=\"1\" fill=\"#E0A020\"/></svg></span>", "rev": "<span class=\"ms rev lg\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span></span>", "echo": "<span class=\"ms echo lg lead\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span><svg class=\"crown\" viewBox=\"0 0 20 16\"><path d=\"M1 13h18L17 6l-4 3L10 2 7 9 3 6z\" fill=\"#F0B22A\"/><rect x=\"1\" y=\"13\" width=\"18\" height=\"3\" rx=\"1\" fill=\"#E0A020\"/></svg></span>", "flow": "<span class=\"ms flow lg\"><span class=\"bd\"><span class=\"eye l\"><i></i></span><span class=\"eye r\"><i></i></span><span class=\"mo\"></span></span><span class=\"ant\"></span></span>"};
+const BOTS = {
+  bit: {name:"Бит", role:"код · главный в чате «Сборка»",
+    work:"Превью выбранного export-пресета в editor dock.", status:"в работе", progress:70,
+    arts:["abc1234","bcd2345","src/app.txt","layout.txt"],
+    qs:["Покрываем превью снапшот-тестом?"],
+    tasks:[["Превью в доке","в работе"],["Снапшот-тест","ждёт"],["Фикс пути 4.3","готово"]],
+    chats:["Сборка · главный"]},
+  ava: {name:"Ава", role:"Тимлид · главный в проекте Demo Game",
+    work:"Следит за составом модулей и тем, чтобы критерии приёмки не разъехались.", status:"онлайн", progress:40,
+    arts:["DESIGN.md","состав модулей"], qs:[],
+    tasks:[["Состав модулей аддона","готово"],["Сверка ACCEPTANCE.md","ждёт"]],
+    chats:["Сборка","Витрина"]},
+  lint: {name:"Линт", role:"Код / диспетчер",
+    work:"Сверил формулировки в ACCEPTANCE.md с тем, что делает Бит.", status:"онлайн", progress:55,
+    arts:["cde3456","ACCEPTANCE.md"], qs:[],
+    tasks:[["Критерии превью","готово"],["Сверка формулировок","в работе"]],
+    chats:["Сборка"]},
+  pix: {name:"Пикс", role:"UI · главный в чате «Оформление»",
+    work:"Готовит иконки пресетов 16×16 и 32×32 под theme.txt.", status:"онлайн", progress:35,
+    arts:["theme.txt"], qs:[],
+    tasks:[["Иконки пресетов","в работе"],["Правки по замечаниям Знака","ждёт"]],
+    chats:["Оформление · главный"]},
+  znak: {name:"Знак", role:"Оформление-Проверка",
+    work:"Оставил 3 замечания по UI editor dock, ждёт правок.", status:"ревью", progress:80,
+    arts:["замечания по UI дока"], qs:[],
+    tasks:[["Ревью UI dock","на проверке"]],
+    chats:["Оформление","Проверка"]},
+  qa: {name:"Тэст", role:"Проверка · главный в чате «Проверка»",
+    work:"Пишет сценарий на путь экспорта в Demo Engine 1.0.", status:"в работе", progress:45,
+    arts:[], qs:[],
+    tasks:[["Сценарий Demo Engine 1.0","в работе"]],
+    chats:["Проверка · главный","Сборка"]},
+  rev: {name:"Рев", role:"Ревизор Demo Game",
+    work:"Не мержит PR #3, пока нет доказательства сценария.", status:"онлайн", progress:20,
+    arts:["PR #3"],
+    qs:["Достаточно ли записи сценария, или нужен ещё автотест?"],
+    tasks:[["Доказательство в PR #3","ждёт"]],
+    chats:["Сборка","Проверка"]},
+  echo: {name:"Эхо", role:"SMM · главный в чате «Анонсы»",
+    work:"Черновик анонса пресетов для канала — без публикации.", status:"онлайн", progress:60,
+    arts:["черновик поста"],
+    qs:["Можно публиковать анонс после мержа ветки?"],
+    tasks:[["Черновик анонса","ждёт ваш ОК"]],
+    chats:["Анонсы · главный"]},
+  flow: {name:"Флоу", role:"Ресёрч · на паузе в этом проекте",
+    work:"В Demo Game сейчас не задействован, ждёт отдельного задания.", status:"пауза", progress:0,
+    arts:[], qs:[], tasks:[], chats:["Анонсы"]}
+};
+function stClass(s){ if(s.includes("готов")) return "done"; if(s.includes("работ")) return "wip"; return "wait"; }
+function fillCard(id){
+  const b = BOTS[id]; if(!b) return;
+  document.getElementById("bc-ava").innerHTML = AVA[id] || "";
+  document.getElementById("bc-name").textContent = b.name;
+  document.getElementById("bc-role").textContent = b.role;
+  document.getElementById("bc-work").innerHTML = "<b>"+b.work+"</b><div class='sub'>"+b.status+(b.progress?" · "+b.progress+"%":"")+"</div>";
+  document.getElementById("bc-prog").style.width = (b.progress||0)+"%";
+  document.getElementById("bc-arts").innerHTML = b.arts.length
+    ? b.arts.map(a => '<span class="chip'+( /\\./.test(a) || /^[a-f0-9]{7}$/.test(a) ? " file":"")+'">'+a+"</span>").join("")
+    : '<span class="sub">Пока нет артефактов</span>';
+  document.getElementById("bc-qs").innerHTML = b.qs.length
+    ? b.qs.map(q => '<div class="q">'+q+'<br><button class="ans" type="button">Ответить</button></div>').join("")
+    : '<span class="sub">Вопросов нет</span>';
+  document.getElementById("bc-tasks").innerHTML = b.tasks.length
+    ? b.tasks.map(t => '<div class="trow"><span>'+t[0]+'</span><span class="st '+stClass(t[1])+'">'+t[1]+"</span></div>").join("")
+    : '<span class="sub">Нет активных задач</span>';
+  document.getElementById("bc-chats").innerHTML = b.chats.map(c => '<span class="pill">'+c+"</span>").join("");
+}
+function showView(view, bot){
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", view!=="project" && t.dataset.view===view));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.dataset.panel===view));
+  const teamBtn=document.getElementById("btn-team");
+  if(teamBtn) teamBtn.classList.toggle("on", view==="project");
+  const panel = document.getElementById("orbit-panel");
+  document.querySelectorAll("#orbit [data-bot]").forEach(el => el.classList.toggle("on", !!bot && el.dataset.bot===bot));
+  if(view==="project" && bot && BOTS[bot]){ panel.classList.add("picked"); fillCard(bot); }
+  else if(panel){ panel.classList.remove("picked"); document.querySelectorAll("#orbit [data-bot]").forEach(el => el.classList.remove("on")); }
+}
+function applyHash(){
+  const raw = (location.hash || "#kanban").slice(1);
+  if(raw==="modal"){ document.body.classList.add("modal-open"); if(!document.querySelector(".panel.on")) showView("kanban"); return; }
+  document.body.classList.remove("modal-open");
+  const parts = raw.split("/");
+  showView(parts[0]||"kanban", parts[1]||"");
+}
+function closeModal(){ if(location.hash==="#modal"){ history.length>1 ? history.back() : (location.hash="kanban"); if(location.hash==="#modal") location.hash="kanban"; } }
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => { location.hash = t.dataset.view; }));
+document.getElementById("btn-team").addEventListener("click", () => { location.hash = "project"; });
+document.querySelectorAll("[data-open-modal]").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); location.hash = "modal"; }));
+document.getElementById("modal-cancel").addEventListener("click", closeModal);
+document.getElementById("modal-save").addEventListener("click", closeModal);
+document.getElementById("modal").addEventListener("click", e => { if(e.target.id==="modal") closeModal(); });
+document.querySelectorAll("#orbit [data-bot]").forEach(el => {
+  el.addEventListener("click", e => {
+    e.stopPropagation();
+    const id = el.dataset.bot;
+    const cur = (location.hash||"").split("/")[1];
+    location.hash = (cur===id) ? "project" : "project/"+id;
+  });
+});
+document.getElementById("bc-close").addEventListener("click", () => { location.hash = "project"; });
+document.querySelectorAll(".member").forEach(m => m.addEventListener("click", () => m.classList.toggle("on")));
+window.addEventListener("hashchange", applyHash);
+if(!location.hash) location.hash = "kanban";
+else applyHash();
+</script>
+</body>
+</html>

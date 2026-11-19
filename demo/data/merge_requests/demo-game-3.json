@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-19T09:15:00Z",
+  "project": "demo-game",
+  "pr_url": "https://example.invalid/demo-game/pull/3",
+  "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "tasks": [
+    "task-01"
+  ],
+  "checks": "green",
+  "summary": "Черновик превью",
+  "state": "draft",
+  "history": [
+    {
+      "state": "draft",
+      "at": "2026-11-19T09:15:00Z",
+      "by": "lead1",
+      "why": "записано в пример"
+    }
+  ]
+}

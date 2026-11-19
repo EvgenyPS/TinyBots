@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: node ${{ matrix.node }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: tsc -b
+        run: npx tsc -b
+      - name: JSON Schema свежая
+        run: node packages/schema/dist/emit.js
+      - name: JSON Schema без расхождений
+        run: git diff --exit-code -- packages/schema/json
+      - name: eslint
+        run: npx eslint .
+      - name: vitest
+        run: npx vitest run
+      - name: LICENSE и NOTICE
+        run: node scripts/check-license.mjs
+      - name: стоп-лист
+        run: node scripts/check-forbidden.mjs
+        env:
+          FORBIDDEN_EXTRA: ${{ secrets.FORBIDDEN_EXTRA }}
+      - name: gitleaks
+        run: node scripts/run-gitleaks.mjs
