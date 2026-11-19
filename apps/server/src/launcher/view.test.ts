@@ -20,6 +20,7 @@ test('primary: зона Москвы, свежая и серая записки,
   if (!view.ok) {
     return
   }
+  expect(view.delivery).toBe('clipboard')
   expect(view.projects.map((project) => project.title)).toEqual(['Demo Game'])
   expect(view.bots.map((bot) => bot.name)).toEqual(['Ава', 'Бит', 'Тэст', 'Рев'])
   expect(view.chats.map((chat) => chat.title)).toEqual(['Сборка'])
@@ -38,7 +39,7 @@ test('beta: другие имена и нью-йоркское время тог
   if (!view.ok) {
     return
   }
-  expect(view.owner.name).toBe('Mira')
+  expect(view.owner.name).toBe('Вега')
   expect(view.synced_label).toBe('04:15')
   const text = JSON.stringify(view)
   for (const oldName of ['Ава', 'Бит', 'Тэст', 'Рев', 'Demo Game', 'Сборка', 'Alex']) {

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-19T09:40:00Z",
+  "task_id": "task-plain",
+  "state": "working",
+  "links": ["notes/plain.md"],
+  "verified": "образец на станке",
+  "not_done": "кромка не закреплена",
+  "question_to_owner": ""
+}

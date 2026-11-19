@@ -1,0 +1,94 @@
+# Случаи главного: пауза, пустой grok id, главный только у проекта, главного нет.
+schema_version: 1
+owner:
+  name: "Север"
+  confirms_merge: true
+data_dir: "data"
+delivery: clipboard
+timezone: "UTC"
+bots:
+  - id: hush1
+    name: "Тишь"
+    role: "тимлид"
+    paused: true
+    grok_id: "demo-hush"
+  - id: yarn1
+    name: "Нить"
+    role: "код"
+  - id: mark1
+    name: "Метка"
+    role: "проверка"
+    grok_id: "demo-mark"
+projects:
+  - id: demo-loom
+    title: "Demo Loom"
+    lead: yarn1
+    owner: owner
+    merge_executor: yarn1
+    source:
+      files:
+        path: "demo-project"
+    chats:
+      - id: hold
+        title: "Пауза"
+        lead: hush1
+        members: [hush1, yarn1, mark1]
+        rules:
+          do: "ждать снятия паузы"
+          dont: "будить бота на паузе"
+        context:
+          - "notes/hold.md"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+      - id: plain
+        title: "Без ссылки"
+        lead: yarn1
+        members: [yarn1, mark1]
+        rules:
+          do: "писать коротко"
+          dont: "вставлять историю чата"
+        context:
+          - "notes/plain.md"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+      - id: relay
+        title: "Смена"
+        lead: absent1
+        members: [yarn1, mark1]
+        rules:
+          do: "брать главного проекта"
+          dont: "будить всех"
+        context:
+          - "notes/relay.md"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+  - id: demo-bare
+    title: "Demo Bare"
+    lead: nobody1
+    owner: owner
+    merge_executor: yarn1
+    source:
+      files:
+        path: "demo-project"
+    chats:
+      - id: bare
+        title: "Пусто"
+        lead: nobody1
+        members: [yarn1]
+        rules:
+          do: "сказать, что главного нет"
+          dont: "собирать бриф молча"
+        context:
+          - "notes/bare.md"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+economy:
+  defaults:
+    wake: mentioned_only
+    reply_limit: short
+    max_wakes_per_task: 3
+  stale_after_hours: 6
