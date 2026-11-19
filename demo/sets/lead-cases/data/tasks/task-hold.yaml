@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:00:00Z"
+id: task-hold
+project: demo-loom
+chat: hold
+assignee: mark1
+goal: "Держать станок"
+inputs:
+  - kind: path
+    value: "notes/hold.md"
+output: "станок не трогаем, пока пауза"
+done_when: "бриф не ушёл боту на паузе"
+out_of_scope: "будить команду"
+reply_limit: short
+due: "2026-11-21"
+status: working

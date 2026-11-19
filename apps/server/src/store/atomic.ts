@@ -4,9 +4,9 @@
  * ВХОД: путь и тело. Необязательный afterChunk — крюк для теста обрыва.
  * ВЫХОД: файл заменён через rename. Пока идёт запись, цель не трогаем: пишем во временный файл рядом.
  * rename на том же томе в Node — замена целиком (на Windows это MoveFileEx с REPLACE_EXISTING).
- * На Windows цель иногда занята долю секунды (EPERM, EBUSY, EACCES). Повторяем только rename:
- * тело уже лежит во временном файле, саму цель до успешного rename не трогаем.
- * Обрыв процесса до rename оставляет прежний файл. Временный хвост после kill — ожидаемый мусор, не данные.
+ * На Windows файл часто ещё держит индексатор или антивирус: EPERM и EBUSY повторяем несколько раз с паузой.
+ * Другие коды не повторяем. Обрыв процесса до успешного rename оставляет прежний файл.
+ * Временный хвост после kill — ожидаемый мусор, не данные.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -15,50 +15,45 @@ import path from 'node:path'
 
 export type AtomicHooks = {
   afterChunk?: (index: number) => Promise<void> | void
-  /** Подмена rename в тесте. Боевой путь зовёт fs.rename. */
+  /** Подмена rename в тесте. В бою — fs.promises.rename. */
   rename?: (from: string, to: string) => Promise<void>
-  pause?: (ms: number) => Promise<void> | void
+  /** Подмена паузы в тесте, чтобы не ждать настоящие миллисекунды. */
+  sleep?: (ms: number) => Promise<void>
 }
 
-const RENAME_ATTEMPTS = 5
-const RETRYABLE_RENAME = new Set(['EPERM', 'EBUSY', 'EACCES'])
+const CHUNK = 16 * 1024
+export const RENAME_ATTEMPTS = 5
+export const RENAME_PAUSE_MS = 25
 
-function errorCode(error: unknown): string {
+function retryableRename(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('code' in error)) {
-    return ''
+    return false
   }
   const code = (error as { code?: unknown }).code
-  return typeof code === 'string' ? code : ''
+  return code === 'EPERM' || code === 'EBUSY'
 }
 
-function delay(ms: number): Promise<void> {
+function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
 }
 
-/** Повторяет rename, пока цель кратко заблокирована. Другие ошибки — сразу наружу. */
-export async function renameReplacing(
-  from: string,
-  to: string,
-  attempt: (from: string, to: string) => Promise<void>,
-  pause: (ms: number) => Promise<void> | void,
-): Promise<void> {
-  for (let n = 1; n <= RENAME_ATTEMPTS; n += 1) {
+async function renameReplace(from: string, to: string, hooks?: AtomicHooks): Promise<void> {
+  const renameFn = hooks?.rename ?? rename
+  const sleepFn = hooks?.sleep ?? defaultSleep
+  for (let attempt = 0; attempt < RENAME_ATTEMPTS; attempt += 1) {
     try {
-      await attempt(from, to)
+      await renameFn(from, to)
       return
     } catch (error) {
-      const again = RETRYABLE_RENAME.has(errorCode(error)) && n < RENAME_ATTEMPTS
-      if (!again) {
+      if (!retryableRename(error) || attempt === RENAME_ATTEMPTS - 1) {
         throw error
       }
-      await pause(20 * n)
+      await sleepFn(RENAME_PAUSE_MS * (attempt + 1))
     }
   }
 }
-
-const CHUNK = 16 * 1024
 
 async function writeAll(handle: FileHandle, data: Buffer): Promise<void> {
   let offset = 0
@@ -102,7 +97,7 @@ export async function writeAtomic(target: string, body: string | Uint8Array, hoo
     await handle.sync()
     await handle.close()
     handle = undefined
-    await renameReplacing(tmp, target, hooks?.rename ?? rename, hooks?.pause ?? delay)
+    await renameReplace(tmp, target, hooks)
     committed = true
   } catch (error) {
     if (handle) {

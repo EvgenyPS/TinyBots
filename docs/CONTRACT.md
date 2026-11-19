@@ -1,10 +1,10 @@
 # Контракт — модули, репо, стек, контракт файлов (к §2, §3.2, §1)
-Полная версия: ../ARCH.md. Стек §2 подтверждаю: Node 20 LTS + TS strict, Hono, Vite+React, zod, yaml, chokidar+SSE, simple-git (Octokit — только при токене в .env).
+Полная версия: ../ARCH.md. Стек, который уже в дереве: Node 20 LTS + TS strict, Hono, Vite+React, zod, yaml. simple-git — с вкладкой Git. chokidar и SSE, подмешивание секретов из `.env` в конфиг, мастер и блокировка одного писателя — позже, сейчас этого нет. Octokit — только если позже появится токен в `.env`.
 
 ## Структура репо (уточнение §3.2, npm workspaces)
 - `packages/schema/` — zod-схемы config/task/status/merge_request/outbox/sync_manifest; из них генерится `schema/*.json`. Один источник типов для server и web.
-- `server/`: `config` (yaml+.env, мастер) · `store` (data_dir, атомарная запись tmp+rename, chokidar→SSE) · `tasks` · `merge` (автомат) · `briefs` (шаблоны ≤8 строк, grokbot://) · `sync` (бандлы) · `git` · `files` (дерево/граф, только allowlist путей) · `api` (`/api/*`, `/api/events`).
-- `web/` — v6 в компонентах, TanStack Query + инвалидация по SSE. `demo/`, `docs/`, `skill/` — как в §3.2.
+- `server/`: `config` (yaml; мастер и подмешивание `.env` — позже) · `store` (data_dir, атомарная запись tmp+rename с повтором rename при EPERM/EBUSY; блокировка одного писателя и chokidar→SSE — позже) · `tasks` · `merge` (автомат) · `briefs` (шаблоны ≤8 строк, grokbot://) · `sync` (бандлы) · `git` · `files` (дерево/граф, только allowlist путей) · `api` (`/api/*`, в том числе `/api/brief`; SSE `/api/events` — позже).
+- `web/` — v6 в компонентах. TanStack Query и инвалидация по SSE — позже. `demo/`, `docs/`, `skill/` — как в §3.2.
 - БД нет, только файлы data_dir.
 
 ## Контракт файлов (data_dir)
@@ -34,7 +34,7 @@
 tsc strict, eslint, vitest (схемы, автомат, атомарная запись, манифест), Playwright на demo, LICENSE/NOTICE, gitleaks; матрица windows-latest + ubuntu-latest.
 
 ## Порядок PR
-1 каркас+CI+LICENSE/NOTICE+demo · 2 schema · 3 config/store/SSE · 4 web v6 только чтение · 5 tasks+briefs · 6 merge+outbox · 7 sync · 8 git/files · 9 мастер и пустые состояния · 10 skill + docs.
+1 каркас+CI+LICENSE/NOTICE+demo · 2 schema · 3 config/store (SSE — позже) · 4 web v6 только чтение · 5 tasks+briefs · 6 merge+outbox · 7 sync · 8 git/files · 9 мастер и пустые состояния · 10 skill + docs.
 
 ## Вопросы владельцу
 Нет.

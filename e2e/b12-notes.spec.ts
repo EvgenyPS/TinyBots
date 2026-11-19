@@ -30,17 +30,50 @@ test('записки, устарело и метка синка', async ({ page 
 
     await expect(page.getByTestId('orbit-note-rev1')).toContainText('нет записки')
 
+    const orbitBefore = await page.getByTestId('orbit-box').boundingBox()
+    const botBefore = await page.getByTestId('orbit-bot-qa1').boundingBox()
     await page.getByTestId('orbit-bot-dev1').click()
+    const orbitAfter = await page.getByTestId('orbit-box').boundingBox()
+    const botAfter = await page.getByTestId('orbit-bot-qa1').boundingBox()
+    expect(orbitAfter?.x).toBe(orbitBefore?.x)
+    expect(orbitAfter?.y).toBe(orbitBefore?.y)
+    expect(orbitAfter?.width).toBe(orbitBefore?.width)
+    expect(orbitAfter?.height).toBe(orbitBefore?.height)
+    expect(Math.abs((botAfter?.x ?? 0) - (botBefore?.x ?? 0))).toBeLessThan(1)
+    expect(Math.abs((botAfter?.y ?? 0) - (botBefore?.y ?? 0))).toBeLessThan(1)
+    const layer = await page.evaluate(() => {
+      const card = document.querySelector('[data-testid="bot-card"]')
+      const orbit = document.querySelector('[data-testid="orbit-box"]')
+      if (!(card instanceof HTMLElement) || !(orbit instanceof HTMLElement)) {
+        return { onTop: false }
+      }
+      const c = card.getBoundingClientRect()
+      const o = orbit.getBoundingClientRect()
+      const left = Math.max(c.left, o.left)
+      const right = Math.min(c.right, o.right)
+      const top = Math.max(c.top, o.top)
+      const bottom = Math.min(c.bottom, o.bottom)
+      const x = (left + right) / 2
+      const y = (top + bottom) / 2
+      const hit = document.elementFromPoint(x, y)
+      const overlaps = right - left > 8 && bottom - top > 8
+      return { onTop: overlaps && hit instanceof Node && card.contains(hit) }
+    })
+    expect(layer.onTop).toBe(true)
     await expect(page.getByTestId('card-note')).toContainText('превью открывается')
     await expect(page.getByTestId('card-note')).toContainText('обновлено 12:30')
 
+    // Карточка лежит поверх правого узла, поэтому перед следующим ботом её закрываем.
+    await page.getByRole('button', { name: 'Закрыть' }).click()
     await page.getByTestId('orbit-bot-qa1').click()
     await expect(page.getByTestId('card-note')).toHaveClass(/is-stale/)
     await expect(page.getByTestId('card-note')).toContainText('устарело')
 
+    await page.getByRole('button', { name: 'Закрыть' }).click()
     await page.getByTestId('orbit-bot-rev1').click()
     await expect(page.getByTestId('card-note')).toContainText('нет записки')
     await expect(page.getByTestId('shell')).toBeVisible()
+    await page.getByRole('button', { name: 'Закрыть' }).click()
     await page.getByTestId('orbit-bot-dev1').click()
     mkdirSync('test-results', { recursive: true })
     await page.screenshot({ path: 'test-results/launcher-demo.png' })

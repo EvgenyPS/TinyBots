@@ -7,13 +7,13 @@
 
 import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { rename } from 'node:fs/promises'
+import { rename as realRename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { afterEach, expect, test } from 'vitest'
-import { writeAtomic } from './atomic.js'
+import { RENAME_ATTEMPTS, writeAtomic } from './atomic.js'
 
 const dirs: string[] = []
 
@@ -51,6 +51,77 @@ test('ошибка до rename не портит прежний файл', async
   ).rejects.toThrow('обрыв')
   expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual({ ok: true, n: 1 })
   expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
+})
+
+function coded(code: string): NodeJS.ErrnoException {
+  const error = new Error(code) as NodeJS.ErrnoException
+  error.code = code
+  return error
+}
+
+test('EPERM и EBUSY на rename повторяются с паузой и затем проходят', async () => {
+  const dir = scratch()
+  const target = path.join(dir, 'note.json')
+  writeFileSync(target, 'old')
+  const sleeps: number[] = []
+  let calls = 0
+  await writeAtomic(target, 'new', {
+    rename: async (from, to) => {
+      calls += 1
+      if (calls === 1) {
+        throw coded('EPERM')
+      }
+      if (calls === 2) {
+        throw coded('EBUSY')
+      }
+      await realRename(from, to)
+    },
+    sleep: async (ms) => {
+      sleeps.push(ms)
+    },
+  })
+  expect(readFileSync(target, 'utf8')).toBe('new')
+  expect(calls).toBe(3)
+  expect(sleeps.length).toBe(2)
+  expect(sleeps.every((ms) => ms > 0)).toBe(true)
+})
+
+test('чужой код rename не повторяется, прежний файл остаётся', async () => {
+  const dir = scratch()
+  const target = path.join(dir, 'note.json')
+  writeFileSync(target, 'old')
+  let calls = 0
+  let slept = 0
+  await expect(writeAtomic(target, 'new', {
+    rename: () => {
+      calls += 1
+      throw coded('ENOENT')
+    },
+    sleep: async () => {
+      slept += 1
+    },
+  })).rejects.toThrow('ENOENT')
+  expect(calls).toBe(1)
+  expect(slept).toBe(0)
+  expect(readFileSync(target, 'utf8')).toBe('old')
+  expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
+})
+
+test('после нескольких EPERM rename сдаётся и не крутится дальше', async () => {
+  const dir = scratch()
+  const target = path.join(dir, 'note.json')
+  writeFileSync(target, 'old')
+  let calls = 0
+  await expect(writeAtomic(target, 'new', {
+    rename: () => {
+      calls += 1
+      throw coded('EPERM')
+    },
+    sleep: async () => undefined,
+  })).rejects.toThrow('EPERM')
+  expect(calls).toBe(RENAME_ATTEMPTS)
+  expect(calls).toBeGreaterThan(1)
+  expect(readFileSync(target, 'utf8')).toBe('old')
 })
 
 test('kill процесса посреди записи оставляет прежний валидный файл', async () => {
@@ -112,70 +183,4 @@ await writeAtomic(target, body, {
   const text = readFileSync(target, 'utf8')
   expect(text).toBe(original)
   expect(JSON.parse(text)).toEqual({ ok: true, n: 1 })
-})
-
-function busyError(): NodeJS.ErrnoException {
-  const error = new Error('busy') as NodeJS.ErrnoException
-  error.code = 'EPERM'
-  return error
-}
-
-test('rename повторяется после EPERM и затем заменяет файл', async () => {
-  const dir = scratch()
-  const target = path.join(dir, 'note.json')
-  writeFileSync(target, '{"ok":false}\n')
-  let calls = 0
-  await writeAtomic(target, '{"ok":true}\n', {
-    pause: () => undefined,
-    rename: async (from, to) => {
-      calls += 1
-      if (calls === 1) {
-        throw busyError()
-      }
-      await rename(from, to)
-    },
-  })
-  expect(calls).toBe(2)
-  expect(readFileSync(target, 'utf8')).toBe('{"ok":true}\n')
-  expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
-})
-
-test('чужой код ошибки rename не повторяется и не портит цель', async () => {
-  const dir = scratch()
-  const target = path.join(dir, 'note.json')
-  writeFileSync(target, '{"ok":true}\n')
-  let calls = 0
-  await expect(
-    writeAtomic(target, '{"ok":false}\n', {
-      pause: () => undefined,
-      rename: () => {
-        calls += 1
-        const error = new Error('gone') as NodeJS.ErrnoException
-        error.code = 'ENOENT'
-        throw error
-      },
-    }),
-  ).rejects.toThrow('gone')
-  expect(calls).toBe(1)
-  expect(readFileSync(target, 'utf8')).toBe('{"ok":true}\n')
-  expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
-})
-
-test('пять EPERM подряд оставляют прежний файл', async () => {
-  const dir = scratch()
-  const target = path.join(dir, 'note.json')
-  writeFileSync(target, '{"ok":true}\n')
-  let calls = 0
-  await expect(
-    writeAtomic(target, '{"ok":false}\n', {
-      pause: () => undefined,
-      rename: () => {
-        calls += 1
-        throw busyError()
-      },
-    }),
-  ).rejects.toThrow('busy')
-  expect(calls).toBe(5)
-  expect(readFileSync(target, 'utf8')).toBe('{"ok":true}\n')
-  expect(readdirSync(dir).some((name) => name.endsWith('.tmp'))).toBe(false)
 })

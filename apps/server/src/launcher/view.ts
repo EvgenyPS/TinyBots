@@ -66,6 +66,7 @@ export type LauncherView = {
   synced_at: string | null
   synced_label: string | null
   owner: { name: string; initials: string }
+  delivery: 'clipboard' | 'queue'
   economy: {
     wake: string
     reply_limit: string
@@ -154,6 +155,7 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
     synced_at: syncedAt,
     synced_label: syncedAt ? formatHm(syncedAt, zone) : null,
     owner: { name: config.owner.name, initials: initialsOf(config.owner.name) },
+    delivery: config.delivery,
     economy: {
       wake: config.economy.defaults.wake,
       reply_limit: config.economy.defaults.reply_limit,

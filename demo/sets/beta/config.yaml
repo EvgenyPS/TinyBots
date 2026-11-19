@@ -1,7 +1,7 @@
 # Второй демо-набор. Имена не пересекаются с primary: e2e проверяет, что старых на экране нет.
 schema_version: 1
 owner:
-  name: "Mira"
+  name: "Вега"
   confirms_merge: true
 data_dir: "data"
 delivery: clipboard
