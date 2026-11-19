@@ -30,7 +30,15 @@ test('записки, устарело и метка синка', async ({ page 
 
     await expect(page.getByTestId('orbit-note-rev1')).toContainText('нет записки')
 
+    const orbitBefore = await page.getByTestId('orbit-box').boundingBox()
+    const botBefore = await page.getByTestId('orbit-bot-qa1').boundingBox()
     await page.getByTestId('orbit-bot-dev1').click()
+    const orbitAfter = await page.getByTestId('orbit-box').boundingBox()
+    const botAfter = await page.getByTestId('orbit-bot-qa1').boundingBox()
+    expect(orbitAfter?.width).toBe(orbitBefore?.width)
+    expect(orbitAfter?.height).toBe(orbitBefore?.height)
+    expect(Math.abs((botAfter?.x ?? 0) - (botBefore?.x ?? 0))).toBeLessThan(1)
+    expect(Math.abs((botAfter?.y ?? 0) - (botBefore?.y ?? 0))).toBeLessThan(1)
     await expect(page.getByTestId('card-note')).toContainText('превью открывается')
     await expect(page.getByTestId('card-note')).toContainText('обновлено 12:30')
 

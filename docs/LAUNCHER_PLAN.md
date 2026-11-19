@@ -276,7 +276,7 @@ TinyBots/
 **Порядок PR** (каждый — одна задача; `ARCH.md` §7, `docs/CONTRACT.md`):
 1. Каркас workspaces, CI, LICENSE/NOTICE, demo/.
 2. `packages/schema` + генерация JSON Schema + тесты.
-3. server: config + store + SSE.
+3. server: config + store. SSE, блокировка одного писателя и секреты из `.env` в конфиг — позже, в этом шаге их нет.
 4. web: оболочка v6 на demo-данных (только чтение).
 5. tasks + briefs (копирование брифа, ссылка grokbot://).
 6. merge-автомат + outbox.

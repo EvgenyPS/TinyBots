@@ -100,6 +100,15 @@ test('чужой Host и Origin отклоняются, свой Origin прох
       origin: `http://${BIND_HOST}:${server.port}`,
     }),
   ).toBe(200)
+  const foreign = server.port === 65535 ? server.port - 1 : server.port + 1
+  expect(await statusOf({ hostHeader: `${BIND_HOST}:${foreign}` })).toBe(403)
+  expect(
+    await statusOf({
+      hostHeader: `${BIND_HOST}:${server.port}`,
+      origin: `http://${BIND_HOST}:${foreign}`,
+    }),
+  ).toBe(403)
+  expect(await statusOf({ hostHeader: BIND_HOST })).toBe(403)
 })
 
 test('запись закрыта, пока нет CSRF', async () => {

@@ -20,7 +20,7 @@ test('пульт строится из второго конфига', async ({ 
       expect(firstPaint, name).not.toContain(name)
     }
     await expect(page.getByTestId('project-title')).toHaveText('Demo Harbor')
-    await expect(page.getByTestId('owner-name')).toContainText('Mira')
+    await expect(page.getByTestId('owner-name')).toContainText('Вега')
     await expect(page.getByTestId('chat-yard')).toContainText('Верфь')
     await expect(page.getByTestId('orbit-bot-nova1')).toContainText('Нова')
     await expect(page.getByTestId('orbit-note-kit1')).toContainText('каркас стоит ровно')

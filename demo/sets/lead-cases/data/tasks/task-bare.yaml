@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:00:00Z"
+id: task-bare
+project: demo-bare
+chat: bare
+assignee: yarn1
+goal: "Найти главного"
+inputs:
+  - kind: path
+    value: "notes/bare.md"
+output: "понятный отказ, если главного нет"
+done_when: "на экране есть просьба выбрать главного"
+out_of_scope: "выдумывать адресата"
+reply_limit: short
+due: "2026-11-23"
+status: blocked

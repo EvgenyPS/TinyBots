@@ -2,10 +2,13 @@
  * FILE: apps/web/src/ui/v6-shell.tsx
  * НАЗНАЧЕНИЕ: тёмная оболочка пульта по сетке v6 (рейл, чаты, сцена).
  * ВХОД: GET /api/launcher. Имена, записки и задачи приходят только оттуда.
- * ВЫХОД: орбита, карточка бота, Задания, Канбан, Правила.
- * Пустые состояния ведут на /setup — заглушку мастера. Бриф и мерж сюда не входят.
+ * ВЫХОД: орбита, карточка бота, Задания, Канбан, Правила и бриф в колонке чата.
+ * Пустые состояния ведут на /setup — заглушку мастера. Мерж сюда не входит.
+ * Карточка бота — оверлей: открытие не меняет сетку орбиты.
  * Записка старше порога уже помечена сервером: здесь только серый цвет и слово «устарело».
  */
+
+import { BriefPanel } from './brief-panel'
 
 import { useEffect, useState } from 'react'
 
@@ -33,6 +36,7 @@ type Chat = {
 type Task = {
   id: string
   project_id: string
+  chat_id: string
   chat_title: string
   assignee_id: string
   assignee_name: string
@@ -44,6 +48,7 @@ type View = {
   timezone: string
   synced_label: string | null
   owner: { name: string; initials: string }
+  delivery: 'clipboard' | 'queue'
   economy: { wake: string; reply_limit: string; max_wakes_per_task: number; stale_after_hours: number }
   projects: Project[]
   bots: Bot[]
@@ -344,12 +349,12 @@ export function Dashboard() {
             {blank ? <EmptyState kind={blank} /> : null}
             {!blank && notesMissing ? <EmptyState kind="notes" /> : null}
             {!blank && panel === 'orbit' ? (
-              <section className={selected ? 'orbit-wrap card picked' : 'orbit-wrap card'} data-testid="orbit">
+              <section className="orbit-wrap card" data-testid="orbit">
                 <div className="orbit-head">
                   <h2>Команда {project?.title}</h2>
                   <p className="sub">{project?.lead_name} — главный в проекте. Нажмите на бота — откроется карточка.</p>
                 </div>
-                <div className="orbit-box">
+                <div className="orbit-box" data-testid="orbit-box">
                   {team.map((bot, index) => {
                     const note = noteOf(data, bot.id)
                     const chief = bot.id === project?.lead_id
@@ -468,6 +473,15 @@ export function Dashboard() {
                 <div className="k">Чат</div>
                 <h2>{chat.title}</h2>
                 <p className="sub">главный {chat.lead_name}</p>
+                {project ? (
+                  <BriefPanel
+                    key={chat.id}
+                    projectId={project.id}
+                    chatId={chat.id}
+                    delivery={data.delivery}
+                    tasks={tasks.filter((task) => task.chat_id === chat.id).map((task) => ({ id: task.id, goal: task.goal }))}
+                  />
+                ) : null}
                 <h3>Участники</h3>
                 <ul className="plain">
                   {chat.members.map((member) => (

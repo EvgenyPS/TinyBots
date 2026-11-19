@@ -4,7 +4,9 @@
  * ВХОД: путь и тело. Необязательный afterChunk — крюк для теста обрыва.
  * ВЫХОД: файл заменён через rename. Пока идёт запись, цель не трогаем: пишем во временный файл рядом.
  * rename на том же томе в Node — замена целиком (на Windows это MoveFileEx с REPLACE_EXISTING).
- * Обрыв процесса до rename оставляет прежний файл. Временный хвост после kill — ожидаемый мусор, не данные.
+ * На Windows файл часто ещё держит индексатор или антивирус: EPERM и EBUSY повторяем несколько раз с паузой.
+ * Другие коды не повторяем. Обрыв процесса до успешного rename оставляет прежний файл.
+ * Временный хвост после kill — ожидаемый мусор, не данные.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -13,9 +15,45 @@ import path from 'node:path'
 
 export type AtomicHooks = {
   afterChunk?: (index: number) => Promise<void> | void
+  /** Подмена rename в тесте. В бою — fs.promises.rename. */
+  rename?: (from: string, to: string) => Promise<void>
+  /** Подмена паузы в тесте, чтобы не ждать настоящие миллисекунды. */
+  sleep?: (ms: number) => Promise<void>
 }
 
 const CHUNK = 16 * 1024
+export const RENAME_ATTEMPTS = 5
+export const RENAME_PAUSE_MS = 25
+
+function retryableRename(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return false
+  }
+  const code = (error as { code?: unknown }).code
+  return code === 'EPERM' || code === 'EBUSY'
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+async function renameReplace(from: string, to: string, hooks?: AtomicHooks): Promise<void> {
+  const renameFn = hooks?.rename ?? rename
+  const sleepFn = hooks?.sleep ?? defaultSleep
+  for (let attempt = 0; attempt < RENAME_ATTEMPTS; attempt += 1) {
+    try {
+      await renameFn(from, to)
+      return
+    } catch (error) {
+      if (!retryableRename(error) || attempt === RENAME_ATTEMPTS - 1) {
+        throw error
+      }
+      await sleepFn(RENAME_PAUSE_MS * (attempt + 1))
+    }
+  }
+}
 
 async function writeAll(handle: FileHandle, data: Buffer): Promise<void> {
   let offset = 0
@@ -59,7 +97,7 @@ export async function writeAtomic(target: string, body: string | Uint8Array, hoo
     await handle.sync()
     await handle.close()
     handle = undefined
-    await rename(tmp, target)
+    await renameReplace(tmp, target, hooks)
     committed = true
   } catch (error) {
     if (handle) {

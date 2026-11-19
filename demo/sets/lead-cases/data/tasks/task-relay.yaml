@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:00:00Z"
+id: task-relay
+project: demo-loom
+chat: relay
+assignee: mark1
+goal: "Передать смену"
+inputs:
+  - kind: path
+    value: "notes/relay.md"
+output: "смена у главного проекта"
+done_when: "бриф адресован главному проекта"
+out_of_scope: "будить всех участников"
+reply_limit: short
+due: "2026-11-22"
+status: new

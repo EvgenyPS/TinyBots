@@ -127,7 +127,10 @@ export function readTasks(dataDir: string): Task[] {
   return tasks
 }
 
-/** Самое позднее updated_at среди валидных манифестов. Это «данные на ЧЧ:ММ». */
+/**
+ * Самое позднее updated_at среди валидных манифестов. Это «данные на ЧЧ:ММ».
+ * Имя файла и порядок каталога не важны: поздний по времени может лежать не в последнем файле.
+ */
 export function readLatestSync(dataDir: string): string | null {
   const dir = path.join(dataDir, 'sync')
   if (!existsSync(dir)) {
