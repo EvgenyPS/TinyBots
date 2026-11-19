@@ -1,0 +1,58 @@
+# Второй демо-набор. Имена не пересекаются с primary: e2e проверяет, что старых на экране нет.
+schema_version: 1
+owner:
+  name: "Mira"
+  confirms_merge: true
+data_dir: "data"
+delivery: clipboard
+timezone: "America/New_York"
+bots:
+  - id: nova1
+    name: "Нова"
+    role: "тимлид"
+    grok_id: "demo-nova"
+  - id: kit1
+    name: "Кит"
+    role: "корпус"
+    executor_for_merge: true
+    grok_id: "demo-kit"
+  - id: luch1
+    name: "Луч"
+    role: "проверка"
+    grok_id: "demo-luch"
+  - id: scout1
+    name: "Скаут"
+    role: "ревизор"
+    paused: true
+    grok_id: "demo-scout"
+projects:
+  - id: demo-harbor
+    title: "Demo Harbor"
+    lead: nova1
+    owner: owner
+    merge_executor: kit1
+    source:
+      git:
+        provider: github
+        repo: "example/demo-harbor"
+      files:
+        path: "demo-project"
+    chats:
+      - id: yard
+        title: "Верфь"
+        lead: kit1
+        members: [kit1, luch1, scout1, nova1]
+        rules:
+          do: "чертёж корпуса и проверка швов"
+          dont: "реклама и витрина"
+        context:
+          - "docs/harbor.md"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+economy:
+  defaults:
+    wake: mentioned_only
+    reply_limit: short
+    max_wakes_per_task: 3
+  stale_after_hours: 6

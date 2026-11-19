@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:15:00Z"
+id: task-h4
+project: demo-harbor
+chat: yard
+assignee: nova1
+goal: "План фарватера"
+inputs:
+  - kind: path
+    value: "docs/harbor.md"
+output: "план в демо-проекте"
+done_when: "фарватер размечен"
+out_of_scope: "покраска"
+reply_limit: short
+due: "2026-11-23"
+status: done

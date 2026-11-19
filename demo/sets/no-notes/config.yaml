@@ -1,0 +1,40 @@
+schema_version: 1
+owner:
+  name: "Nika"
+  confirms_merge: true
+data_dir: "data"
+delivery: clipboard
+timezone: "Europe/Moscow"
+bots:
+  - id: field1
+    name: "Поле"
+    role: "сбор"
+    grok_id: "demo-field"
+projects:
+  - id: demo-field
+    title: "Demo Field"
+    lead: field1
+    owner: owner
+    merge_executor: field1
+    source:
+      files:
+        path: "demo-project"
+    chats:
+      - id: edge
+        title: "Межа"
+        lead: field1
+        members: [field1]
+        rules:
+          do: "собирать заметки с края поля"
+          dont: "звать ботов, которых нет в конфиге"
+        context:
+          - "notes/field.md"
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+economy:
+  defaults:
+    wake: mentioned_only
+    reply_limit: short
+    max_wakes_per_task: 3
+  stale_after_hours: 6

@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:15:00Z"
+id: task-h1
+project: demo-harbor
+chat: yard
+assignee: kit1
+goal: "Каркас причала"
+inputs:
+  - kind: path
+    value: "docs/harbor.md"
+output: "каркас в демо-проекте"
+done_when: "сваи стоят по чертежу"
+out_of_scope: "реклама"
+reply_limit: short
+due: "2026-11-20"
+status: working

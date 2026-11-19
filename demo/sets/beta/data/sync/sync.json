@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-19T09:15:00Z",
+  "entries": [
+    {
+      "path": "status/kit1.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "updated_at": "2026-11-19T09:15:00Z"
+    }
+  ]
+}
