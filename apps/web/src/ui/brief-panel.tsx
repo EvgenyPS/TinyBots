@@ -80,6 +80,7 @@ export function BriefPanel(props: {
   }
 
   async function copy(): Promise<void> {
+    // Пишем ровно текст превью. На Windows буфер может сохранить перевод строки как CRLF — буквы те же.
     const shown = previewRef.current?.textContent ?? ''
     try {
       await navigator.clipboard.writeText(shown)

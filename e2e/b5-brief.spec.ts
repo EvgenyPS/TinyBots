@@ -53,7 +53,9 @@ test('бриф за один клик, подпись, буфер и ссылк�
 
     await page.getByTestId('copy-brief').click()
     const copied = await page.evaluate(() => navigator.clipboard.readText())
-    expect(copied).toBe(shown)
+    // Буфер Windows отдаёт CRLF. Другой текст по-прежнему не проходит: годится только превью или оно же с \r\n.
+    const crlf = shown.replace(/\n/g, '\r\n')
+    expect(copied === shown || copied === crlf).toBe(true)
   } finally {
     await server.stop()
   }
