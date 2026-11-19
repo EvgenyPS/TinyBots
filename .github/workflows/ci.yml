@@ -12,9 +12,6 @@ jobs:
   check:
     name: node ${{ matrix.node }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    env:
-      # Один путь на обеих ОС, его и кладём в кэш.
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/ms-playwright
     strategy:
       fail-fast: false
       matrix:
@@ -42,10 +39,20 @@ jobs:
         run: npx vitest run
       - name: сборка страницы
         run: npm run build -w @tinybots/web
+      - name: каталог браузеров Playwright
+        id: pw-browsers
+        shell: bash
+        run: |
+          # Вне репозитория: файл .links хранит абсолютный путь и роняет стоп-лист.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "dir=${LOCALAPPDATA}/ms-playwright" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=${HOME}/.cache/ms-playwright" >> "$GITHUB_OUTPUT"
+          fi
       - name: кэш браузеров Playwright
         uses: actions/cache@v4
         with:
-          path: ms-playwright
+          path: ${{ steps.pw-browsers.outputs.dir }}
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: браузер Playwright
         if: runner.os == 'Linux'

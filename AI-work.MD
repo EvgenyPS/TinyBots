@@ -14,7 +14,7 @@ TinyBots — локальный пульт над ботами. Репозито
 - Битый конфиг не роняет процесс: `422` с файлом, строкой и причиной. Время в зоне из конфига. Записка старше `stale_after_hours` — «устарело». Нет файла или он битый — «нет записки». Шапка: «данные на ЧЧ:ММ» по последнему манифесту синка.
 - Запись файла — временный файл и `rename`. HTTP не пишет (405), CSRF будет вместе с первой записью.
 - Пустые проекты, боты и записки: текст и кнопка «Настроить» → `/setup` (заглушка).
-- `npm test` — vitest. `npm run e2e` — Playwright 1.65 по критериям B1–B4 и B12–B16. CI: Node 20/24, Ubuntu и Windows. На Ubuntu браузер ставится `npx playwright install --with-deps chromium` и кэшируется в `ms-playwright`.
+- `npm test` — vitest. `npm run e2e` — Playwright 1.65 по критериям B1–B4 и B12–B16. CI: Node 20/24, Ubuntu и Windows. На Ubuntu браузер ставится `npx playwright install --with-deps chromium` в штатный кэш вне репозитория.
 - `LICENSE`, `NOTICE`, стоп-лист, gitleaks — как в каркасе.
 
 ## Не в этом дереве
