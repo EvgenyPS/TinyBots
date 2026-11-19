@@ -149,6 +149,35 @@ test('config.example.yaml проходит схему', () => {
   expect(configSchema.safeParse(raw).success).toBe(true)
 })
 
+test('data_dir не указывает на git, package.json и устройства Windows', () => {
+  const config = copy(readData(path.join(repoRoot, 'config.example.yaml')))
+  const blocked = [
+    '.git',
+    '.GIT',
+    'package.json',
+    'Package.JSON',
+    'CON',
+    'nul',
+    'PRN.txt',
+    'aux.yaml',
+    'COM1',
+    'com9.json',
+    'LPT1',
+    'lpt9.txt',
+    'CON.',
+    'data/.git',
+    'data/Package.JSON',
+    'notes/NUL',
+    'foo/COM1.txt',
+  ]
+  for (const dataDir of blocked) {
+    expect(configSchema.safeParse({ ...config, data_dir: dataDir }).success, dataDir).toBe(false)
+  }
+  for (const dataDir of ['data', './data', 'data/notes', 'company', 'config', 'COM10', 'comet']) {
+    expect(configSchema.safeParse({ ...config, data_dir: dataDir }).success, dataDir).toBe(true)
+  }
+})
+
 test('по три битых примера на каждую схему', () => {
   const cases: Array<{ name: string; schema: ZodType; value: unknown }> = []
 

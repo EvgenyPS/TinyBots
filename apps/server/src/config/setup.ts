@@ -3,12 +3,12 @@
  * НАЗНАЧЕНИЕ: описание мастера и запись config.yaml.
  * ВХОД: корень, явный путь конфига, разобранное тело POST.
  * ВЫХОД: шаги для экрана или файл на диске. Куда писать, решает сервер, не тело запроса.
- * Схема zod проходит до mkdir и rename. Существующий файл без confirm_overwrite не трогаем.
+ * Схема zod проходит до mkdir и rename. Без confirm_overwrite файл создаётся флагом wx:
+ * второй параллельный POST видит, что цель уже есть, и получает 409.
  * Семи шагов хватает на проход: потолок критерия — десять.
  */
 
-import { existsSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open, rm, type FileHandle } from 'node:fs/promises'
 import path from 'node:path'
 import { configSchema } from '@tinybots/schema'
 import { stringify } from 'yaml'
@@ -107,17 +107,40 @@ export async function saveSetup(root: string, explicit: string | undefined, payl
     return { status: 422, body: { ok: false, error: 'invalid_config', reason: roundtrip.reason } }
   }
 
-  const existsNow = existsSync(target.absolute)
-  if (existsNow && envelope.data.confirm_overwrite !== true) {
-    return { status: 409, body: { ok: false, error: 'config_exists', file: target.target } }
-  }
-
+  const overwrite = envelope.data.confirm_overwrite === true
+  let claimed = false
   try {
     await mkdir(path.dirname(target.absolute), { recursive: true })
+    if (!overwrite) {
+      // wx — создание «только если файла ещё нет». Проверка exists до записи проигрывает гонку.
+      claimed = await claimNewFile(target.absolute)
+      if (!claimed) {
+        return { status: 409, body: { ok: false, error: 'config_exists', file: target.target } }
+      }
+    }
     await writeAtomic(target.absolute, text)
   } catch {
+    if (claimed) {
+      await rm(target.absolute, { force: true }).catch(() => undefined)
+    }
     // Текст исключения может содержать абсолютный путь. Наружу его не отдаём.
     return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'не удалось записать файл' } }
   }
   return { status: 200, body: { ok: true, file: target.target } }
+}
+
+/** true — этот вызов создал пустой файл. false — цель уже была. */
+async function claimNewFile(target: string): Promise<boolean> {
+  let handle: FileHandle | undefined
+  try {
+    handle = await open(target, 'wx')
+    return true
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'EEXIST') {
+      return false
+    }
+    throw error
+  } finally {
+    await handle?.close()
+  }
 }

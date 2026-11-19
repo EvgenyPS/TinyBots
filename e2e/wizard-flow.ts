@@ -19,12 +19,12 @@ export type WizardSample = {
 
 export const sample: WizardSample = {
   owner: 'Nika',
-  bot: 'Мира',
+  bot: 'Кедр',
   role: 'код',
   project: 'Demo Kit',
   chat: 'Сборка',
   source: 'app',
-  botId: 'mira',
+  botId: 'kedr',
 }
 
 export async function fillUntilSource(page: Page, data: WizardSample): Promise<void> {

@@ -24,7 +24,7 @@ test('полный проход пишет конфиг и открывает п
     expect(text).toContain('schema_version: 1')
     expect(text).toContain('Demo Kit')
     expect(text).toContain('Nika')
-    expect(text).toContain('Мира')
+    expect(text).toContain('Кедр')
   } finally {
     await server.stop()
     rmSync(dir, { recursive: true, force: true })

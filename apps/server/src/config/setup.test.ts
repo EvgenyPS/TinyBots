@@ -63,21 +63,21 @@ function sampleConfig(title: string): Record<string, unknown> {
     owner: { name: 'Nika', confirms_merge: true },
     data_dir: 'data',
     delivery: 'clipboard',
-    bots: [{ id: 'mira', name: 'Мира', role: 'код', executor_for_merge: true }],
+    bots: [{ id: 'kedr', name: 'Кедр', role: 'код', executor_for_merge: true }],
     projects: [
       {
         id: 'kit',
         title,
-        lead: 'mira',
+        lead: 'kedr',
         owner: 'owner',
-        merge_executor: 'mira',
+        merge_executor: 'kedr',
         source: { files: { path: 'app' } },
         chats: [
           {
             id: 'build',
             title: 'Сборка',
-            lead: 'mira',
-            members: ['mira'],
+            lead: 'kedr',
+            members: ['kedr'],
             rules: { do: 'код и проверка', dont: 'не будить весь чат' },
             context: [],
             economy: { wake: 'mentioned_only', reply_limit: 'short' },
@@ -212,16 +212,27 @@ test('валидный конфиг пишется, повтор без подт
 })
 
 test('демо-файл и ссылка наружу не становятся целью записи', async () => {
-  const example = path.join(repoRoot(), 'config.example.yaml')
-  const before = readFileSync(example, 'utf8')
-  const denied = await saveSetup(repoRoot(), 'config.example.yaml', {
+  // Пишем только во временный корень. Настоящий config.example.yaml тест не открывает на запись.
+  const root = scratch()
+  const example = path.join(root, 'config.example.yaml')
+  writeFileSync(example, 'schema_version: 1\n')
+  const denied = await saveSetup(root, 'config.example.yaml', {
     confirm_overwrite: true,
     config: sampleConfig('Demo Kit'),
   })
   expect(denied.status).toBe(403)
-  expect(readFileSync(example, 'utf8')).toBe(before)
+  expect(readFileSync(example, 'utf8')).toBe('schema_version: 1\n')
 
-  const root = scratch()
+  const demoFile = path.join(root, 'demo', 'sets', 'primary', 'config.yaml')
+  mkdirSync(path.dirname(demoFile), { recursive: true })
+  writeFileSync(demoFile, 'keep\n')
+  const demoDenied = await saveSetup(root, 'demo/sets/primary/config.yaml', {
+    confirm_overwrite: true,
+    config: sampleConfig('Demo Kit'),
+  })
+  expect(demoDenied.status).toBe(403)
+  expect(readFileSync(demoFile, 'utf8')).toBe('keep\n')
+
   const outside = scratch()
   symlinkSync(outside, path.join(root, 'link'))
   const escaped = await saveSetup(root, 'link/config.yaml', {
@@ -230,6 +241,19 @@ test('демо-файл и ссылка наружу не становятся �
   })
   expect(escaped.status).toBe(403)
   expect(existsSync(path.join(outside, 'config.yaml'))).toBe(false)
+})
+
+test('data_dir не принимает git, package.json и имена устройств', async () => {
+  const root = scratch()
+  const rel = 'proj/config.yaml'
+  const blocked = ['.git', 'package.json', 'CON', 'nul.txt', 'data/.git', 'data/Package.JSON', 'notes/LPT1.yaml', 'COM1']
+  for (const dataDir of blocked) {
+    const saved = await saveSetup(root, rel, {
+      config: { ...sampleConfig('Demo Kit'), data_dir: dataDir },
+    })
+    expect(saved.status, dataDir).toBe(422)
+    expect(existsSync(path.join(root, 'proj', 'config.yaml')), dataDir).toBe(false)
+  }
 })
 
 test('токен записи сравнивается целиком', () => {
@@ -245,7 +269,7 @@ function call(
   pathname: string,
   headers: Record<string, string>,
   body?: string,
-): Promise<{ status: number; json: unknown }> {
+): Promise<{ status: number; json: unknown; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       { hostname: BIND_HOST, port, path: pathname, method, headers },
@@ -256,10 +280,11 @@ function call(
         })
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8')
+          const sent = { status: res.statusCode ?? 0, headers: res.headers }
           try {
-            resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) as unknown })
+            resolve({ ...sent, json: JSON.parse(text) as unknown })
           } catch {
-            resolve({ status: res.statusCode ?? 0, json: text })
+            resolve({ ...sent, json: text })
           }
         })
       },
@@ -267,6 +292,11 @@ function call(
     req.on('error', reject)
     req.end(body)
   })
+}
+
+function expectFrame(headers: http.IncomingHttpHeaders): void {
+  expect(headers['x-frame-options']).toBe('DENY')
+  expect(headers['content-security-policy']).toBe("frame-ancestors 'none'")
 }
 
 test('HTTP: порт, токен, схема и отказ затереть файл', async () => {
@@ -338,6 +368,125 @@ test('HTTP: порт, токен, схема и отказ затереть фа
   } finally {
     await server?.close()
     rmSync(path.dirname(absolute), { recursive: true, force: true })
+  }
+})
+
+test('HTTP: нет Origin, пустой Origin и строка null не пишут файл', async () => {
+  // requestAllowed пускает пустой Origin: так читают страницу. Эти три случая ловит только проверка записи.
+  const rel = 'data/setup-origin/config.yaml'
+  const absolute = path.join(repoRoot(), rel)
+  rmSync(path.dirname(absolute), { recursive: true, force: true })
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0, configPath: rel })
+    const host = `${BIND_HOST}:${server.port}`
+    const opened = await call(server.port, 'GET', '/api/setup', { Host: host })
+    const csrf = (opened.json as { csrf?: string }).csrf ?? ''
+    const body = JSON.stringify({ config: sampleConfig('Demo Kit') })
+    const common = { Host: host, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }
+    const cases: Array<{ name: string; headers: Record<string, string> }> = [
+      { name: 'нет Origin', headers: common },
+      { name: 'пустой Origin', headers: { ...common, Origin: '' } },
+      { name: 'Origin null', headers: { ...common, Origin: 'null' } },
+    ]
+    const seen: string[] = []
+    for (const item of cases) {
+      const sent = await call(server.port, 'POST', '/api/setup', item.headers, body)
+      const error = sent.json && typeof sent.json === 'object' && 'error' in sent.json
+        ? String((sent.json as { error?: unknown }).error)
+        : ''
+      seen.push(`${item.name}:${sent.status}:${error}`)
+      expectFrame(sent.headers)
+    }
+    expect(seen).toEqual([
+      'нет Origin:403:forbidden_host',
+      'пустой Origin:403:forbidden_host',
+      'Origin null:403:forbidden_host',
+    ])
+    expect(existsSync(absolute)).toBe(false)
+  } finally {
+    await server?.close()
+    rmSync(path.dirname(absolute), { recursive: true, force: true })
+  }
+})
+
+test('HTTP: неверный токен не пишет файл', async () => {
+  const rel = 'data/setup-csrf/config.yaml'
+  const absolute = path.join(repoRoot(), rel)
+  rmSync(path.dirname(absolute), { recursive: true, force: true })
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0, configPath: rel })
+    const host = `${BIND_HOST}:${server.port}`
+    const sent = await call(
+      server.port,
+      'POST',
+      '/api/setup',
+      {
+        Host: host,
+        Origin: `http://${host}`,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': 'not-the-token',
+      },
+      JSON.stringify({ config: sampleConfig('Demo Kit') }),
+    )
+    expect(sent.status).toBe(403)
+    expect(sent.json).toMatchObject({ error: 'csrf' })
+    expect(existsSync(absolute)).toBe(false)
+  } finally {
+    await server?.close()
+    rmSync(path.dirname(absolute), { recursive: true, force: true })
+  }
+})
+
+test('HTTP: десять параллельных POST оставляют одну запись', async () => {
+  const rel = 'data/setup-race/config.yaml'
+  const absolute = path.join(repoRoot(), rel)
+  rmSync(path.dirname(absolute), { recursive: true, force: true })
+  let server: RunningServer | undefined
+  try {
+    const running = await startServer({ port: 0, configPath: rel })
+    server = running
+    const host = `${BIND_HOST}:${running.port}`
+    const opened = await call(running.port, 'GET', '/api/setup', { Host: host })
+    const csrf = (opened.json as { csrf?: string }).csrf ?? ''
+    const headers = {
+      Host: host,
+      Origin: `http://${host}`,
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrf,
+    }
+    const body = JSON.stringify({ config: sampleConfig('Demo Kit') })
+    const sent = await Promise.all(
+      Array.from({ length: 10 }, () => call(running.port, 'POST', '/api/setup', headers, body)),
+    )
+    const codes = sent.map((item) => item.status)
+    expect(codes.filter((code) => code === 200)).toHaveLength(1)
+    expect(codes.filter((code) => code === 409)).toHaveLength(9)
+    expect(parseConfigText(readFileSync(absolute, 'utf8'), rel).ok).toBe(true)
+  } finally {
+    await server?.close()
+    rmSync(path.dirname(absolute), { recursive: true, force: true })
+  }
+})
+
+test('HTTP: /setup нельзя вложить во фрейм', async () => {
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0 })
+    const host = `${BIND_HOST}:${server.port}`
+    const page = await call(server.port, 'GET', '/setup', { Host: host })
+    expect(page.status).toBe(200)
+    expectFrame(page.headers)
+    const api = await call(server.port, 'GET', '/api/setup', { Host: host })
+    expect(api.status).toBe(200)
+    expectFrame(api.headers)
+    const health = await call(server.port, 'GET', '/health', { Host: host })
+    expect(health.status).toBe(200)
+    expect(health.headers['x-frame-options']).toBeUndefined()
+    expect(health.headers['content-security-policy']).toBeUndefined()
+  } finally {
+    await server?.close()
   }
 })
 

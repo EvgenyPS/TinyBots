@@ -4,7 +4,10 @@
  * ВХОД: config.yaml (или демо-набор) и сборка apps/web/dist, если она есть.
  * ВЫХОД: /health, /api/bots (список каркаса), API проектов, ботов, чатов, записок и страница.
  * Чужой Host, Origin или чужой порт — 403. Единственная запись — POST /api/setup:
- * тот же requestAllowed, что и у чтения, плюс Origin и токен. Любой другой не-GET отвечает 405.
+ * тот же requestAllowed, что и у чтения, плюс непустой Origin и токен.
+ * Пустой Origin и строка null для записи не годятся: чтение их не отличает от «заголовка нет».
+ * Параллельные POST этого маршрута идут по одному. Любой другой не-GET отвечает 405.
+ * /setup не отдаётся во фрейме.
  * Битый конфиг не роняет процесс: API отдаёт файл, строку и причину.
  * GET /api/brief собирает бриф. Текста в ответе нет, если главный на паузе или не задан.
  */
@@ -17,7 +20,7 @@ import { serve, type HttpBindings, type ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { Server } from 'node:http'
 import { BIND_HOST } from './bind.js'
-import { describeSetup, saveSetup } from './config/setup.js'
+import { describeSetup, saveSetup, type SetupReply } from './config/setup.js'
 import { inspectSource } from './config/source-check.js'
 import { newCsrfToken, tokensMatch } from './csrf.js'
 import { FALLBACK_HTML } from './fallback-html.js'
@@ -55,11 +58,42 @@ function isSetupWrite(method: string, pathname: string): boolean {
   return method === 'POST' && pathname === '/api/setup'
 }
 
+function isSetupPath(pathname: string): boolean {
+  return pathname === '/setup' || pathname === '/setup/' || pathname === '/api/setup' || pathname.startsWith('/api/setup/')
+}
+
+/**
+ * Чтение пускает запрос без Origin: так открывают страницу.
+ * Запись так нельзя: иначе порт Origin не с чем сверить.
+ * «null» — непрозрачный origin, его браузер шлёт строкой из четырёх букв.
+ */
+function writeOriginPresent(origin: string | undefined): boolean {
+  if (origin === undefined) {
+    return false
+  }
+  const trimmed = origin.trim()
+  return trimmed.length > 0 && trimmed.toLowerCase() !== 'null'
+}
+
+/** Очередь одного маршрута: второй POST ждёт, пока первый закончит запись. */
+function queueWrites(): (job: () => Promise<SetupReply>) => Promise<SetupReply> {
+  let chain: Promise<void> = Promise.resolve()
+  return (job) => {
+    const run = chain.then(job, job)
+    chain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+}
+
 export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }> {
   const app = new Hono<{ Bindings: HttpBindings }>()
   const root = repoRoot()
   const csrf = newCsrfToken()
   const boundPort = options?.boundPort ?? { current: 0 }
+  const setupQueue = queueWrites()
   const botsFile = path.join(root, 'demo', 'bots.json')
   const webDist = path.join(root, 'apps', 'web', 'dist')
   const indexFile = path.join(webDist, 'index.html')
@@ -73,12 +107,16 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     const host = hostFromContext(c)
     const origin = c.req.header('origin')
     const pathname = new URL(c.req.url).pathname
+    if (isSetupPath(pathname)) {
+      c.header('X-Frame-Options', 'DENY')
+      c.header('Content-Security-Policy', "frame-ancestors 'none'")
+    }
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
       if (!isSetupWrite(c.req.method, pathname)) {
         return c.json({ error: 'writes_not_ready' }, 405)
       }
       // Порт проверяет тот же requestAllowed, что и чтение. Без Origin запись не пускаем.
-      if (origin === undefined || origin === '' || !requestAllowed(host, origin, boundPort.current)) {
+      if (!writeOriginPresent(origin) || !requestAllowed(host, origin, boundPort.current)) {
         return c.json({ error: 'forbidden_host' }, 403)
       }
       await next()
@@ -196,7 +234,7 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     } catch {
       return c.json({ error: 'json' }, 400)
     }
-    const saved = await saveSetup(root, options?.configPath, payload)
+    const saved = await setupQueue(() => saveSetup(root, options?.configPath, payload))
     return c.json(saved.body, saved.status)
   })
 
