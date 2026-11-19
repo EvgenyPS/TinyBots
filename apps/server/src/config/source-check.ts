@@ -3,12 +3,14 @@
  * НАЗНАЧЕНИЕ: проверить папку проекта перед записью конфига.
  * ВХОД: корень, явный путь конфига и относительный путь источника.
  * ВЫХОД: есть ли у этой папки свой git. Если нет — та же фраза, что увидит человек.
- * Свой git — это .git именно в папке и rev-parse, чей корень совпал с ней.
+ * Свой git — это .git именно в папке и пустой --show-prefix: папка сама корень.
+ * Абсолютные пути не сравниваем: на Windows короткий путь (RUNNER~1) и длинный
+ * (runneradmin) расходятся, и живой репозиторий выглядел бы как «git нет».
  * Родительский репозиторий лаунчера не считается: GIT_DIR окружения снимаем.
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { isContainedPath } from '@tinybots/schema'
 import { staysInRoot } from './confine.js'
@@ -51,50 +53,36 @@ function gitEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-function gitTop(dir: string): Promise<string | null> {
+function gitPrefix(dir: string): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
       'git',
-      ['-C', dir, 'rev-parse', '--show-toplevel'],
+      // Только этот вызов. Звёздочка не пишет конфиг: на раннере Windows владелец
+      // временной папки и процесс git иногда расходятся, и rev-parse молчит.
+      ['-c', 'safe.directory=*', '-C', dir, 'rev-parse', '--show-prefix'],
       { timeout: 4000, windowsHide: true, encoding: 'utf8', env: gitEnv() },
       (error, stdout) => {
         if (error) {
           resolve(null)
           return
         }
-        const text = String(stdout).trim()
-        resolve(text.length > 0 ? text : null)
+        resolve(String(stdout).replace(/\r/g, '').trim())
       },
     )
   })
 }
 
-function samePlace(left: string, right: string): boolean {
-  const a = path.resolve(left)
-  const b = path.resolve(right)
-  if (process.platform === 'win32') {
-    return a.toLowerCase() === b.toLowerCase()
-  }
-  return a === b
+function prefixIsRoot(prefix: string): boolean {
+  return prefix === '' || prefix === '.' || prefix === './'
 }
 
 async function ownRepo(dir: string): Promise<boolean> {
   if (!existsSync(path.join(dir, '.git'))) {
     return false
   }
-  const top = await gitTop(dir)
-  if (top === null) {
-    return false
-  }
-  let realDir: string
-  let realTop: string
-  try {
-    realDir = realpathSync(dir)
-    realTop = realpathSync(top)
-  } catch {
-    return false
-  }
-  return samePlace(realDir, realTop)
+  const prefix = await gitPrefix(dir)
+  // Пустой префикс — корень этой папки. Непустой — мы внутри чужого репозитория.
+  return prefix !== null && prefixIsRoot(prefix)
 }
 
 export async function inspectSource(root: string, explicit: string | undefined, requestPath: string): Promise<SourceReport> {
