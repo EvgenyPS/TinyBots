@@ -16,6 +16,7 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "test": "vitest run",
+    "e2e": "playwright test",
     "schema:json": "npm run emit -w @tinybots/schema",
     "check:license": "node scripts/check-license.mjs",
     "check:forbidden": "node scripts/check-forbidden.mjs",
@@ -29,6 +30,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.56.1",
     "@types/node": "24.10.1",
     "eslint": "9.39.5",
     "globals": "17.4.0",

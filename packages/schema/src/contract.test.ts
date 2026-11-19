@@ -57,16 +57,21 @@ function readData(file: string): unknown {
 }
 
 function schemaFor(rel: string): ZodType | 'skip' {
-  if (rel === 'README.md') {
+  if (rel === 'README.md' || rel.endsWith('/README.md')) {
     return 'skip'
   }
   if (rel === 'bots.json') {
     return botRosterSchema
   }
-  if (rel.startsWith('data/tasks/')) {
+  // Наборы пульта лежат рядом с примерами контракта и проходят те же схемы.
+  const setTask = /^sets\/[^/]+\/data\/tasks\//.test(rel)
+  const setStatus = /^sets\/[^/]+\/data\/status\//.test(rel)
+  const setSync = /^sets\/[^/]+\/data\/sync\//.test(rel)
+  const setConfig = /^sets\/[^/]+\/config\.yaml$/.test(rel)
+  if (rel.startsWith('data/tasks/') || setTask) {
     return taskSchema
   }
-  if (rel.startsWith('data/status/')) {
+  if (rel.startsWith('data/status/') || setStatus) {
     return statusSchema
   }
   if (rel.startsWith('data/merge_requests/')) {
@@ -84,10 +89,10 @@ function schemaFor(rel: string): ZodType | 'skip' {
   if (rel.startsWith('data/usage/')) {
     return usageSchema
   }
-  if (rel.startsWith('data/sync/')) {
+  if (rel.startsWith('data/sync/') || setSync) {
     return syncManifestSchema
   }
-  if (rel.startsWith('data/config/')) {
+  if (rel.startsWith('data/config/') || setConfig) {
     return configSchema
   }
   throw new Error(`нет схемы для demo/${rel}`)

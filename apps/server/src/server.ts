@@ -1,9 +1,10 @@
 /**
  * FILE: apps/server/src/server.ts
- * НАЗНАЧЕНИЕ: HTTP-каркас пульта.
- * ВХОД: demo/bots.json и, если есть, сборка apps/web/dist.
- * ВЫХОД: /health, /api/bots и страница Hello TinyBots.
- * Слушаем только BIND_HOST. Запись отвечает 405, пока нет CSRF (PR 3).
+ * НАЗНАЧЕНИЕ: HTTP пульта на 127.0.0.1.
+ * ВХОД: config.yaml (или демо-набор) и сборка apps/web/dist, если она есть.
+ * ВЫХОД: /health, /api/bots (список каркаса), API проектов, ботов, чатов, записок и страница.
+ * Чужой Host/Origin — 403. Запись закрыта, пока нет CSRF: любой не-GET отвечает 405.
+ * Битый конфиг не роняет процесс: API отдаёт файл, строку и причину.
  */
 
 import { existsSync } from 'node:fs'
@@ -16,6 +17,8 @@ import type { Server } from 'node:http'
 import { BIND_HOST } from './bind.js'
 import { FALLBACK_HTML } from './fallback-html.js'
 import { requestAllowed } from './guard.js'
+import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
+import type { ConfigFailure } from './config/load.js'
 import { repoRoot } from './root.js'
 
 export type RunningServer = {
@@ -24,20 +27,33 @@ export type RunningServer = {
   close: () => Promise<void>
 }
 
+export type AppOptions = LaunchOptions
+
 function hostFromContext(c: { req: { header: (name: string) => string | undefined }; env: HttpBindings }): string | undefined {
   return c.req.header('host') ?? c.env.incoming.headers.host
 }
 
-export function createApp(): Hono<{ Bindings: HttpBindings }> {
+function publish(result: LauncherView | ConfigFailure): { body: LauncherView | ConfigFailure; status: 200 | 422 } {
+  if (!result.ok) {
+    return { body: result, status: 422 }
+  }
+  return { body: result, status: 200 }
+}
+
+export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }> {
   const app = new Hono<{ Bindings: HttpBindings }>()
   const root = repoRoot()
   const botsFile = path.join(root, 'demo', 'bots.json')
   const webDist = path.join(root, 'apps', 'web', 'dist')
+  const indexFile = path.join(webDist, 'index.html')
+  const hasWeb = existsSync(indexFile)
+
+  const launcher = (): LauncherView | ConfigFailure => loadLauncher(root, options)
 
   app.use('*', async (c, next) => {
     c.header('X-Content-Type-Options', 'nosniff')
     c.header('Referrer-Policy', 'no-referrer')
-    // TODO(PR 3): CSRF-токен. Пока любого не-GET нет, запись закрыта целиком.
+    // Запись откроем вместе с CSRF. Пока любого не-GET нет.
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
       return c.json({ error: 'writes_not_ready' }, 405)
     }
@@ -64,13 +80,75 @@ export function createApp(): Hono<{ Bindings: HttpBindings }> {
     }
   })
 
+  app.get('/api/launcher', (c) => {
+    const sent = publish(launcher())
+    return c.json(sent.body, sent.status)
+  })
+
+  app.get('/api/projects', (c) => {
+    const result = launcher()
+    if (!result.ok) {
+      return c.json(result, 422)
+    }
+    return c.json({ ok: true, projects: result.projects })
+  })
+
+  app.get('/api/roster', (c) => {
+    const result = launcher()
+    if (!result.ok) {
+      return c.json(result, 422)
+    }
+    return c.json({ ok: true, bots: result.bots })
+  })
+
+  app.get('/api/chats', (c) => {
+    const result = launcher()
+    if (!result.ok) {
+      return c.json(result, 422)
+    }
+    return c.json({ ok: true, chats: result.chats })
+  })
+
+  app.get('/api/notes', (c) => {
+    const result = launcher()
+    if (!result.ok) {
+      return c.json(result, 422)
+    }
+    return c.json({ ok: true, notes: result.notes })
+  })
+
+  app.get('/api/tasks', (c) => {
+    const result = launcher()
+    if (!result.ok) {
+      return c.json(result, 422)
+    }
+    return c.json({ ok: true, tasks: result.tasks })
+  })
+
+  app.get('/api/sync', (c) => {
+    const result = launcher()
+    if (!result.ok) {
+      return c.json(result, 422)
+    }
+    return c.json({ ok: true, synced_at: result.synced_at, synced_label: result.synced_label })
+  })
+
   // Абсолютный root у serveStatic в типах не обещан, поэтому путь относительно cwd.
-  if (existsSync(path.join(webDist, 'index.html'))) {
+  if (hasWeb) {
     const relativeDist = path.relative(process.cwd(), webDist)
     app.use('/*', serveStatic({ root: relativeDist }))
   }
 
-  app.get('*', (c) => c.html(FALLBACK_HTML))
+  app.get('*', async (c) => {
+    const pathname = new URL(c.req.url).pathname
+    if (pathname.includes('.') && pathname !== '/index.html') {
+      return c.text('не найдено', 404)
+    }
+    if (hasWeb) {
+      return c.html(await readFile(indexFile, 'utf8'))
+    }
+    return c.html(FALLBACK_HTML)
+  })
 
   return app
 }
@@ -81,9 +159,10 @@ function asNodeServer(server: ServerType): Server {
 
 /**
  * Поднять сервер. hostname передаётся всегда: без него listen открывает все интерфейсы.
+ * configPath и now нужны тестам: подмена конфига и часов без перезапуска процесса-родителя.
  */
-export async function startServer(options?: { port?: number }): Promise<RunningServer> {
-  const app = createApp()
+export async function startServer(options?: { port?: number } & AppOptions): Promise<RunningServer> {
+  const app = createApp(options)
   const port = options?.port ?? 8787
   const server = asNodeServer(
     serve({

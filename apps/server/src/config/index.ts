@@ -1,17 +1,25 @@
 /**
  * FILE: apps/server/src/config/index.ts
- * НАЗНАЧЕНИЕ: загрузка config.yaml и .env, мастер настройки пишет файл.
- * ВХОД: путь к config.yaml и окружение.
- * ВЫХОД: проверенный конфиг.
- * СТАТУС: заглушка. Реализация — PR 3.
+ * НАЗНАЧЕНИЕ: загрузка config.yaml через схемы пакета.
+ * ВХОД: корень репозитория и необязательный относительный путь.
+ * ВЫХОД: проверенный конфиг или отказ с файлом, строкой и причиной.
+ * Мастер настройки, который создаёт config.yaml, сюда не входит.
  */
 
-import { SCHEMA_PACKAGE } from '@tinybots/schema'
+import { loadConfigAt, selectConfigRequest, type ConfigFailure, type LoadedConfig } from './load.js'
 
-/** Связка workspace: сервер уже зависит от пакета схем. */
-export const schemaPackageForConfig = SCHEMA_PACKAGE
+export { SCHEMA_PACKAGE as schemaPackageForConfig } from '@tinybots/schema'
+export {
+  loadConfigAt,
+  locateConfig,
+  parseConfigText,
+  resolveDataDir,
+  selectConfigRequest,
+  type ConfigFailure,
+  type LoadedConfig,
+} from './load.js'
 
-export function loadConfig(): never {
-  // TODO(PR 3): разбор config.yaml и .env, ошибки с файлом и строкой, без падения процесса.
-  throw new Error('config: не реализовано (PR 3)')
+/** Тот же разбор, что у API: без пути берётся config.yaml или демо-набор. */
+export function loadConfig(root: string, explicit?: string): LoadedConfig | ConfigFailure {
+  return loadConfigAt(root, selectConfigRequest(root, explicit))
 }
