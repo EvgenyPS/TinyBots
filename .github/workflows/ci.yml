@@ -12,6 +12,9 @@ jobs:
   check:
     name: node ${{ matrix.node }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Один путь на обеих ОС, его и кладём в кэш.
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/ms-playwright
     strategy:
       fail-fast: false
       matrix:
@@ -39,11 +42,17 @@ jobs:
         run: npx vitest run
       - name: сборка страницы
         run: npm run build -w @tinybots/web
+      - name: кэш браузеров Playwright
+        uses: actions/cache@v4
+        with:
+          path: ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: браузер Playwright
-        run: npx playwright install chromium
-      - name: библиотеки браузера
         if: runner.os == 'Linux'
-        run: sudo npx playwright install-deps chromium
+        run: npx playwright install --with-deps chromium
+      - name: браузер Playwright
+        if: runner.os != 'Linux'
+        run: npx playwright install chromium
       - name: e2e
         run: npx playwright test
       - name: LICENSE и NOTICE

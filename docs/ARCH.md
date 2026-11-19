@@ -67,4 +67,4 @@ demo/              # вымышленные данные, на них же e2e-�
 
 Страница (`apps/web`) тёмная, сетка как у v6: рейл, чаты, орбита, карточка, Задания, Канбан, Правила. Данные только из `/api/launcher`. Пустые проекты, боты и записки ведут на `/setup` (заглушка мастера). Бриф, мерж, вкладки Git/Файлы/Документация и эффекты орбиты в этот срез не входят.
 
-Команды: `npm test`, `npm run build -w @tinybots/web`, `npm run e2e`. Подмена часов для e2e — только `e2e/boot.mjs` (`TINYBOTS_NOW`), `npm start` её не читает.
+Команды: `npm test`, `npm run build -w @tinybots/web`, `npm run e2e`. Подмена часов для e2e — только `e2e/boot.mjs` (`TINYBOTS_NOW`), `npm start` её не читает. CI ставит Chromium пакетом `@playwright/test` 1.65: на Ubuntu `npx playwright install --with-deps chromium`, на Windows без `--with-deps`. Браузеры лежат в `PLAYWRIGHT_BROWSERS_PATH` и кэшируются по `package-lock.json`.

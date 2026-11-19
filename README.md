@@ -57,7 +57,7 @@ npm run e2e
 ```
 
 `npm test` — vitest (схемы, разбор конфига, атомарная запись, API).
-`npm run e2e` — Playwright. Перед ним нужны `tsc -b` (его делает и `npm start`) и сборка страницы.
+`npm run e2e` — Playwright 1.65 (нужен Ubuntu 26.04 в `ubuntu-latest`). Перед ним нужны `tsc -b` (его делает и `npm start`) и сборка страницы. В CI браузер ставится так: на Ubuntu `npx playwright install --with-deps chromium`, на Windows `npx playwright install chromium`. Каталог браузеров — `PLAYWRIGHT_BROWSERS_PATH`, он же кэшируется.
 В CI то же самое на Node 20 и 24, Ubuntu и Windows.
 
 ## Безопасность
