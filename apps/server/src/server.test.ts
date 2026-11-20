@@ -2,7 +2,7 @@
  * FILE: apps/server/src/server.test.ts
  * НАЗНАЧЕНИЕ: дымовая проверка каркаса.
  * Сервер слушает только 127.0.0.1, /health отвечает 200, чужой Host получает 403.
- * POST мимо /api/setup по-прежнему 405.
+ * POST мимо /api/setup, /api/merge/decide и /api/sync/apply по-прежнему 405.
  */
 
 import http from 'node:http'
@@ -95,6 +95,8 @@ test('чужой Host и Origin отклоняются, свой Origin прох
   expect(await statusOf({ hostHeader: `evil.example:${server.port}` })).toBe(403)
   expect(await statusOf({ hostHeader: `${BIND_HOST}:${server.port}`, origin: 'http://evil.example' })).toBe(403)
   expect(await statusOf({ hostHeader: `${BIND_HOST}:${server.port}` })).toBe(200)
+  expect(await statusOf({ hostHeader: `${BIND_HOST}:${server.port}`, origin: '' })).toBe(200)
+  expect(await statusOf({ hostHeader: `${BIND_HOST}:${server.port}`, origin: 'null' })).toBe(403)
   expect(
     await statusOf({
       hostHeader: `${BIND_HOST}:${server.port}`,

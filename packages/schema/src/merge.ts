@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod'
-import { idSchema, isoSchema, versionFields } from './common.js'
+import { idSchema, isMergeFilePath, isoSchema, versionFields } from './common.js'
 
 export const MERGE_STATES = [
   'draft',
@@ -130,6 +130,10 @@ export const mergeRequestSchema = z.strictObject({
     requested_by: z.string().nullable(),
     approved_by: z.string().nullable(),
   }).optional(),
+  // Режим files: какие файлы переносить из staging. Путь относительный, без .git, backups и staging.
+  files: z.array(z.strictObject({
+    path: z.string().refine(isMergeFilePath, 'только относительный путь вне .git, backups и staging'),
+  })).optional(),
 })
 
 export type MergeRequest = z.infer<typeof mergeRequestSchema>

@@ -41,6 +41,14 @@
         "type": "string",
         "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
       }
+    },
+    "mr_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "intent": {
+      "type": "string",
+      "const": "changes_requested"
     }
   },
   "required": [

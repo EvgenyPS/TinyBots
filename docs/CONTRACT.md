@@ -22,13 +22,13 @@
 ## Автомат мержа (сведён с §4.5, единый вариант)
 `draft → awaiting_owner → (changes_requested → awaiting_owner …) → approved → delivered → merging → merged`.
 Другие исходы: `→ rejected` · `merging → merge_failed → awaiting_owner` · `merged → reverted`.
-Отличие от §4.5 одно — состояние `delivered` («решение доставлено на бокс», §1 «отправлено, не доставлено»): лаунчер ставит `approved`, `delivered` ставит только главный после синка, `merge_executor` стартует только из `delivered`. Если `head_sha` изменился после `approved` → обратно в `awaiting_owner`. Каждый переход в `history[{state,at,by,why}]`.
+Отличие от §4.5 одно — состояние `delivered` («решение доставлено на бокс», §1 «отправлено, не доставлено»): лаунчер ставит `approved`, `delivered` ставит только главный после синка, `merge_executor` стартует только из `delivered`. Если `head_sha` изменился после `approved` → обратно в `awaiting_owner`. Каждый переход в `history[{state,at,by,why}]`. В срезе этапа 2 живого главного нет: `POST /api/sync/apply` на демо проводит доставку и исполнителя подряд. Бандл `box-to-pc.tgz` по-прежнему не собирается.
 
 ## Синк бокс ↔ ПК (меньше одобрений)
 По одному бандлу в каждую сторону: `box-to-pc.tgz` (tasks, status, merge_requests) и `pc-to-box.tgz` (outbox) с `sync_manifest.json` (path, sha256, updated_at). Это 2 операции на ПК вместо N. Распаковку делает лаунчер/скрипт, не перезаписывая файлы чужого писателя.
 
 ## Безопасность
-Только 127.0.0.1; проверка Host/Origin (DNS rebinding) и CSRF-токен на запись; пути только внутри конфига (нормализация, без `..` и внешних симлинков); секреты только из .env, в API и логи не попадают; gitleaks в pre-commit и CI.
+Только 127.0.0.1; проверка Host/Origin (DNS rebinding) и CSRF-токен на запись. `data_dir` и файл конфига — внутри репозитория, без `..` и внешней ссылки. Папка проекта (`source.files.path`) может быть вне лаунчера. Секреты только из .env, в API и логи не попадают; gitleaks в pre-commit и CI.
 
 ## CI
 tsc strict, eslint, vitest (схемы, автомат, атомарная запись, манифест), Playwright на demo, LICENSE/NOTICE, gitleaks; матрица windows-latest + ubuntu-latest.

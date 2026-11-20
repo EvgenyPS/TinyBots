@@ -1,19 +1,19 @@
 /**
  * FILE: apps/server/src/config/source-check.ts
  * НАЗНАЧЕНИЕ: проверить папку проекта перед записью конфига.
- * ВХОД: корень, явный путь конфига и относительный путь источника.
+ * ВХОД: корень, явный путь конфига и путь источника. Папка может быть где угодно,
+ * в том числе вне папки лаунчера: абсолютный путь и выход наверх здесь допустимы.
  * ВЫХОД: есть ли у этой папки свой git. Если нет — та же фраза, что увидит человек.
  * Свой git — это .git именно в папке и пустой --show-prefix: папка сама корень.
- * Абсолютные пути не сравниваем: на Windows короткий путь (RUNNER~1) и длинный
- * (runneradmin) расходятся, и живой репозиторий выглядел бы как «git нет».
+ * Абсолютные пути не сравниваем между собой для git: на Windows короткий путь (RUNNER~1)
+ * и длинный (runneradmin) расходятся, и живой репозиторий выглядел бы как «git нет».
  * Родительский репозиторий лаунчера не считается: GIT_DIR окружения снимаем.
  */
 
 import { execFile } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { isContainedPath } from '@tinybots/schema'
-import { staysInRoot } from './confine.js'
+import { isProjectFolderPath } from '@tinybots/schema'
 import { resolveSetupTarget } from './setup-target.js'
 
 /** Дословно критерий B18. Экран показывает эту строку, тест ищет её целиком. */
@@ -57,9 +57,8 @@ function gitPrefix(dir: string): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
       'git',
-      // Только этот вызов. Звёздочка не пишет конфиг: на раннере Windows владелец
-      // временной папки и процесс git иногда расходятся, и rev-parse молчит.
-      ['-c', 'safe.directory=*', '-C', dir, 'rev-parse', '--show-prefix'],
+      // Без safe.directory: звёздочка заставила бы git открыть любой путь, включая UNC.
+      ['-C', dir, 'rev-parse', '--show-prefix'],
       { timeout: 4000, windowsHide: true, encoding: 'utf8', env: gitEnv() },
       (error, stdout) => {
         if (error) {
@@ -87,18 +86,16 @@ async function ownRepo(dir: string): Promise<boolean> {
 
 export async function inspectSource(root: string, explicit: string | undefined, requestPath: string): Promise<SourceReport> {
   const raw = requestPath.trim()
-  if (raw.length === 0 || raw.length > 300 || !isContainedPath(raw)) {
-    return { ok: false, path: '', reason: 'только относительный путь' }
+  if (!isProjectFolderPath(raw)) {
+    return { ok: false, path: '', reason: 'путь к папке проекта' }
   }
   const target = resolveSetupTarget(root, explicit)
   if (!target.ok) {
     return { ok: false, path: '', reason: target.reason }
   }
-  // Путь в конфиге живёт относительно папки самого файла, как data_dir.
-  const absolute = path.resolve(path.dirname(target.absolute), raw)
-  if (!staysInRoot(root, absolute)) {
-    return { ok: false, path: raw, reason: 'путь выходит за корень репозитория' }
-  }
+  // Относительный путь считаем от папки конфига. Абсолютный оставляем как есть:
+  // проект владельца не обязан лежать внутри лаунчера.
+  const absolute = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(path.dirname(target.absolute), raw)
   if (!existsSync(absolute)) {
     return { ok: false, path: raw, reason: 'путь не найден' }
   }

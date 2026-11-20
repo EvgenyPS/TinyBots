@@ -10,13 +10,14 @@ import http from 'node:http'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, expect, test } from 'vitest'
 import { BIND_HOST } from '../bind.js'
 import { tokensMatch } from '../csrf.js'
 import { repoRoot } from '../root.js'
 import { startServer, type RunningServer } from '../server.js'
-import { parseConfigText } from './load.js'
-import { saveSetup, SETUP_STEP_LIMIT, SETUP_STEPS, describeSetup } from './setup.js'
+import { parseConfigText, loadConfigAt } from './load.js'
+import { saveSetup, SETUP_STEP_LIMIT, SETUP_STEPS, describeSetup, placeNewFile } from './setup.js'
 import { resolveSetupTarget } from './setup-target.js'
 import { GIT_HIDDEN_WARNING, inspectSource, judgeSource } from './source-check.js'
 
@@ -145,14 +146,37 @@ test('проверка папки: нет .git, есть свой git, файл 
   expect(up.ok).toBe(false)
 })
 
-test('ссылка на папку вне корня не считается источником', async () => {
+test('ссылка на папку вне корня годится как источник и не подменяет запрошенный путь', async () => {
   const root = scratch()
   const outside = scratch()
   mkdirSync(path.join(root, 'proj'), { recursive: true })
   symlinkSync(outside, path.join(root, 'proj', 'link'))
   const report = await inspectSource(root, 'proj/config.yaml', 'link')
-  expect(report.ok).toBe(false)
+  expect(report).toMatchObject({ ok: true, path: 'link', git: false, warning: GIT_HIDDEN_WARNING })
   expect(JSON.stringify(report)).not.toContain(outside)
+})
+
+test('папка проекта вне лаунчера принимается', async () => {
+  const root = scratch()
+  mkdirSync(path.join(root, 'proj'), { recursive: true })
+  const outside = scratch()
+  writeFileSync(path.join(outside, 'note.txt'), 'x\n')
+  const absolute = await inspectSource(root, 'proj/config.yaml', outside)
+  expect(absolute).toMatchObject({ ok: true, git: false, warning: GIT_HIDDEN_WARNING })
+  const relative = path.relative(path.join(root, 'proj'), outside)
+  const escaped = await inspectSource(root, 'proj/config.yaml', relative)
+  expect(escaped).toMatchObject({ ok: true, git: false, warning: GIT_HIDDEN_WARNING })
+})
+
+test('UNC и device-путь не доходят до диска, safe.directory нет', async () => {
+  const root = scratch()
+  mkdirSync(path.join(root, 'proj'), { recursive: true })
+  const source = readFileSync(fileURLToPath(new URL('./source-check.ts', import.meta.url)), 'utf8')
+  expect(source.includes('safe.directory=')).toBe(false)
+  for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x', '\\/evil', '/\\evil']) {
+    const report = await inspectSource(root, 'proj/config.yaml', folder)
+    expect(report, folder).toMatchObject({ ok: false, reason: 'путь к папке проекта' })
+  }
 })
 
 test('нет config.yaml — мастер нужен, демо и пример не перезаписываются', () => {
@@ -243,10 +267,10 @@ test('демо-файл и ссылка наружу не становятся �
   expect(existsSync(path.join(outside, 'config.yaml'))).toBe(false)
 })
 
-test('data_dir не принимает git, package.json и имена устройств', async () => {
+test('data_dir не принимает git, package.json, служебные каталоги и имена устройств', async () => {
   const root = scratch()
   const rel = 'proj/config.yaml'
-  const blocked = ['.git', 'package.json', 'CON', 'nul.txt', 'data/.git', 'data/Package.JSON', 'notes/LPT1.yaml', 'COM1']
+  const blocked = ['.git', 'package.json', 'CON', 'nul.txt', 'data/.git', 'data/Package.JSON', 'notes/LPT1.yaml', 'COM1', 'node_modules', '.github', 'scripts', 'node_modules.', 'data\u0000']
   for (const dataDir of blocked) {
     const saved = await saveSetup(root, rel, {
       config: { ...sampleConfig('Demo Kit'), data_dir: dataDir },
@@ -254,6 +278,30 @@ test('data_dir не принимает git, package.json и имена устр�
     expect(saved.status, dataDir).toBe(422)
     expect(existsSync(path.join(root, 'proj', 'config.yaml')), dataDir).toBe(false)
   }
+})
+
+test('обрыв до публикации не оставляет пустой config.yaml, пустой файл открывает мастер', async () => {
+  const root = scratch()
+  const target = path.join(root, 'config.yaml')
+  await expect(placeNewFile(target, 'schema_version: 1\n', () => {
+    throw new Error('обрыв')
+  })).rejects.toThrow('обрыв')
+  expect(existsSync(target)).toBe(false)
+
+  writeFileSync(target, '\n')
+  const described = withoutConfigEnv(() => describeSetup(root, undefined, 'csrf-demo'))
+  expect(described.body.required).toBe(true)
+  expect(described.body.exists).toBe(false)
+  const loaded = loadConfigAt(root, 'config.yaml')
+  expect(loaded.ok).toBe(false)
+  if (!loaded.ok) {
+    expect(loaded.reason).toContain('мастер')
+  }
+  const saved = await withoutConfigEnv(() => saveSetup(root, undefined, { config: sampleConfig('Demo Kit') }))
+  expect(saved.status).toBe(200)
+  const text = readFileSync(target, 'utf8')
+  expect(text.trim().length).toBeGreaterThan(0)
+  expect(parseConfigText(text, 'config.yaml').ok).toBe(true)
 })
 
 test('токен записи сравнивается целиком', () => {
@@ -410,6 +458,64 @@ test('HTTP: нет Origin, пустой Origin и строка null не пиш�
   }
 })
 
+test('HTTP: проверка папки требует свой Origin и токен', async () => {
+  const rel = 'data/setup-source/config.yaml'
+  const plain = path.join(repoRoot(), 'data', 'setup-source', 'plain')
+  rmSync(path.dirname(plain), { recursive: true, force: true })
+  mkdirSync(plain, { recursive: true })
+  writeFileSync(path.join(plain, 'note.txt'), 'x\n')
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0, configPath: rel })
+    const host = `${BIND_HOST}:${server.port}`
+    const opened = await call(server.port, 'GET', '/api/setup', { Host: host })
+    const csrf = (opened.json as { csrf?: string }).csrf ?? ''
+    const okHeaders = { Host: host, Origin: `http://${host}`, 'X-CSRF-Token': csrf }
+    const blocked: Array<{ name: string; headers: Record<string, string> }> = [
+      { name: 'нет токена', headers: { Host: host, Origin: `http://${host}` } },
+      { name: 'чужой токен', headers: { ...okHeaders, 'X-CSRF-Token': 'not-the-token' } },
+      { name: 'нет Origin и нет токена', headers: { Host: host } },
+      { name: 'Origin null', headers: { Host: host, Origin: 'null', 'X-CSRF-Token': csrf } },
+      { name: 'чужой порт', headers: { Host: host, Origin: `http://${BIND_HOST}:9`, 'X-CSRF-Token': csrf } },
+      { name: 'чужой Host', headers: { Host: `evil.example:${server.port}`, Origin: `http://${host}`, 'X-CSRF-Token': csrf } },
+    ]
+    for (const item of blocked) {
+      const sent = await call(server.port, 'GET', '/api/setup/source?path=plain', item.headers)
+      expect(sent.status, item.name).toBe(403)
+    }
+    const allowed = await call(server.port, 'GET', '/api/setup/source?path=plain', okHeaders)
+    expect(allowed.status).toBe(200)
+    expect(allowed.json).toMatchObject({ ok: true, path: 'plain', git: false })
+    // Страница шлёт этот GET без Origin. Чужой сайт так токен не подставит.
+    const fromPage = await call(server.port, 'GET', '/api/setup/source?path=plain', {
+      Host: host,
+      'X-CSRF-Token': csrf,
+    })
+    expect(fromPage.status).toBe(200)
+    const uncBare = await call(
+      server.port,
+      'GET',
+      `/api/setup/source?path=${encodeURIComponent('\\\\server\\share')}`,
+      { Host: host },
+    )
+    expect(uncBare.status).toBe(403)
+    for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x', '\\/evil', '/\\evil']) {
+      const sent = await call(
+        server.port,
+        'GET',
+        `/api/setup/source?path=${encodeURIComponent(folder)}`,
+        okHeaders,
+      )
+      expect(sent.status, folder).toBe(422)
+      expect(sent.json).toMatchObject({ ok: false, reason: 'путь к папке проекта' })
+    }
+    expect(readFileSync(path.join(plain, 'note.txt'), 'utf8')).toBe('x\n')
+  } finally {
+    await server?.close()
+    rmSync(path.dirname(plain), { recursive: true, force: true })
+  }
+})
+
 test('HTTP: неверный токен не пишет файл', async () => {
   const rel = 'data/setup-csrf/config.yaml'
   const absolute = path.join(repoRoot(), rel)
@@ -478,6 +584,9 @@ test('HTTP: /setup нельзя вложить во фрейм', async () => {
     const page = await call(server.port, 'GET', '/setup', { Host: host })
     expect(page.status).toBe(200)
     expectFrame(page.headers)
+    const rootPage = await call(server.port, 'GET', '/', { Host: host })
+    expect(rootPage.status).toBe(200)
+    expectFrame(rootPage.headers)
     const api = await call(server.port, 'GET', '/api/setup', { Host: host })
     expect(api.status).toBe(200)
     expectFrame(api.headers)

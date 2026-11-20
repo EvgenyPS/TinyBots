@@ -20,6 +20,9 @@ export const decisionSchema = z.strictObject({
   at: isoSchema,
   project: idSchema.optional(),
   pr_url: z.string().min(1).optional(),
+  mr_id: idSchema.optional(),
+  // Красный CI: владелец явно отметил «принимаю риск». Без отметки поля нет.
+  accept_risk: z.boolean().optional(),
 })
 
 export const feedbackSchema = z.strictObject({
@@ -31,6 +34,9 @@ export const feedbackSchema = z.strictObject({
   at: isoSchema,
   feedback: z.string().min(1),
   sent_to_chats: z.array(idSchema),
+  mr_id: idSchema.optional(),
+  // changes_requested не действие файла решения. Отзыв «на доработку» живёт здесь.
+  intent: z.literal('changes_requested').optional(),
 })
 
 export type OwnerDecision = z.infer<typeof decisionSchema>

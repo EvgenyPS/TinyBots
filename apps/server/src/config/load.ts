@@ -150,6 +150,9 @@ export function loadConfigAt(root: string, request: string): LoadedConfig | Conf
   } catch {
     return failure(located.display, 1, 'нет доступа к файлу')
   }
+  if (text.trim().length === 0) {
+    return failure(located.display, 1, 'файл пуст, откройте мастер')
+  }
   const parsed = parseConfigText(text, located.display)
   if (!parsed.ok) {
     return parsed

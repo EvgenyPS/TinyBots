@@ -74,6 +74,25 @@
 | C12 | Решение по мержу не действует, пока не доставлено (бокс и ПК) | интеграционный тест: решение в `outbox/` без синхронизации не меняет статус на боксе |
 | C13 | Кнопки «Запросы на мерж (N)» и «Откатить» неактивны без подходящих объектов и объясняют почему | e2e |
 
+Галочку владельца этот раздел не ставит. Где лежит проверка в коде:
+
+| ID | Проверка |
+|---|---|
+| C1, C5, C7, C8 | `e2e/c-merge.spec.ts`, один сценарий в режимах git и files |
+| C2, C10 | `apps/server/src/merge/merge.test.ts`, брифы |
+| C3, C4 | тот же файл, таблица пар и журнал |
+| C6 | `e2e/c-merge.spec.ts`, JSON решения с `accept_risk` |
+| C9 | `apps/server/src/merge/merge.test.ts`, sha256 |
+| C11 | `e2e/c-merge.spec.ts`, `pr_url` с `/mock-fail/` |
+| C12 | `apps/server/src/merge/merge.test.ts`, outbox без доставки |
+| C13 | `e2e/c-merge.spec.ts` на `demo/sets/primary` |
+| Н12 | `e2e/b12-notes.spec.ts`: карточка не пересекает правого бота |
+| Н24 | `packages/schema/src/contract.test.ts`, `apps/server/src/config/setup.test.ts` |
+| Н28, Н29 | `packages/schema/src/contract.test.ts`, `apps/server/src/config/setup.test.ts` |
+| Н30 | `apps/server/src/config/setup.test.ts`, заголовки на `/` |
+| Н31 | `apps/server/src/config/setup.test.ts`, пустой файл и обрыв до публикации |
+| Н32 | комментарий `apps/server/src/server.ts`. Чтение с Origin `null` — 403, пустой Origin — 200: `apps/server/src/server.test.ts`. Запись с `null` — `apps/server/src/config/setup.test.ts` |
+
 ## D. Этап 3: v1
 
 | ID | Критерий | Как проверяем |

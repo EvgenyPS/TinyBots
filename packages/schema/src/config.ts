@@ -7,7 +7,7 @@
  */
 
 import { z } from 'zod'
-import { containedPathSchema, idSchema, isSafeDataDir, schemaVersionSchema } from './common.js'
+import { containedPathSchema, idSchema, isProjectFolderPath, isSafeDataDir, schemaVersionSchema } from './common.js'
 
 const wakeSchema = z.enum(['mentioned_only'])
 const replySchema = z.enum(['short', 'long'])
@@ -46,7 +46,8 @@ const gitSourceSchema = z.strictObject({
 const sourceSchema = z.strictObject({
   git: gitSourceSchema.nullable().optional(),
   files: z.strictObject({
-    path: containedPathSchema,
+    // Папка проекта не привязана к корню лаунчера: абсолютный путь и выход наверх допустимы.
+    path: z.string().refine(isProjectFolderPath, 'путь к папке проекта'),
   }).optional(),
 }).refine((value) => value.git != null || value.files != null, 'нужен git или каталог files')
 

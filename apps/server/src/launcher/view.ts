@@ -6,7 +6,7 @@
  * Имена на экране берутся только отсюда. Демо-список bots.json этот модуль не читает.
  */
 
-import type { LauncherConfig } from '@tinybots/schema'
+import type { LauncherConfig, MergeRequest } from '@tinybots/schema'
 import {
   loadConfigAt,
   resolveDataDir,
@@ -14,6 +14,7 @@ import {
   type ConfigFailure,
   type LoadedConfig,
 } from '../config/load.js'
+import { readMerges } from '../merge/disk.js'
 import { readLatestSync, readNotes, readTasks, type NoteRecord } from '../store/read.js'
 import { formatHm } from '../time.js'
 
@@ -58,6 +59,97 @@ export type LauncherTask = {
   done_when: string
 }
 
+export type LauncherIteration = {
+  n: number
+  done: string[]
+  broken: string[]
+  postponed: string[]
+  risks: string[]
+  other: string
+  addressed_feedback: { quote: string; fixed: string[]; remaining: string[] } | null
+  decision: { by: string; action: string; feedback: string; sent_to_chats: string[] } | null
+}
+
+export type LauncherMerge = {
+  id: string
+  project_id: string
+  state: string
+  checks: 'green' | 'red'
+  summary: string
+  mode: 'git' | 'files'
+  pr_url: string
+  head_sha: string
+  author: string | null
+  owner: string
+  affected_chats: string[]
+  links: { pr: string | null; ci: string | null; diff: string | null }
+  iterations: LauncherIteration[]
+  error: string | null
+  updated_at: string
+}
+
+function mergeError(mr: MergeRequest): string | null {
+  if (mr.state !== 'awaiting_owner') {
+    return null
+  }
+  for (let index = mr.history.length - 1; index >= 0; index -= 1) {
+    const item = mr.history[index]
+    if (item?.state === 'merge_failed') {
+      return item.why
+    }
+  }
+  return null
+}
+
+function presentMerges(dataDir: string): LauncherMerge[] {
+  return readMerges(dataDir).map((stored) => {
+    const mr = stored.mr
+    return {
+      id: stored.id,
+      project_id: mr.project,
+      state: mr.state,
+      checks: mr.checks,
+      summary: mr.summary,
+      mode: mr.mode ?? 'git',
+      pr_url: mr.pr_url,
+      head_sha: mr.head_sha,
+      author: mr.author ?? null,
+      owner: mr.owner ?? '',
+      affected_chats: [...(mr.affected_chats ?? [])],
+      links: {
+        pr: mr.links?.pr ?? null,
+        ci: mr.links?.ci ?? null,
+        diff: mr.links?.diff ?? null,
+      },
+      iterations: (mr.iterations ?? []).map((item) => ({
+        n: item.n,
+        done: [...(item.done ?? [])],
+        broken: [...(item.broken ?? [])],
+        postponed: [...(item.postponed ?? [])],
+        risks: [...(item.risks ?? [])],
+        other: item.other ?? '',
+        addressed_feedback: item.addressed_feedback
+          ? {
+              quote: item.addressed_feedback.quote,
+              fixed: [...item.addressed_feedback.fixed],
+              remaining: [...item.addressed_feedback.remaining],
+            }
+          : null,
+        decision: item.decision
+          ? {
+              by: item.decision.by,
+              action: item.decision.action,
+              feedback: item.decision.feedback,
+              sent_to_chats: [...item.decision.sent_to_chats],
+            }
+          : null,
+      })),
+      error: mergeError(mr),
+      updated_at: mr.updated_at,
+    }
+  })
+}
+
 export type LauncherView = {
   ok: true
   file: string
@@ -78,6 +170,7 @@ export type LauncherView = {
   chats: LauncherChat[]
   tasks: LauncherTask[]
   notes: NoteRecord[]
+  merge_requests: LauncherMerge[]
 }
 
 function letterOf(title: string): string {
@@ -191,6 +284,7 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
       })),
     ),
     tasks,
+    merge_requests: presentMerges(dataDir.dir),
     notes: readNotes(
       dataDir.dir,
       config.bots.map((bot) => bot.id),

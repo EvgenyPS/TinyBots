@@ -178,6 +178,125 @@ test('data_dir не указывает на git, package.json и устройс�
   }
 })
 
+test('data_dir режет управляющие символы, служебные каталоги и хвостовые точки', () => {
+  const config = copy(readData(path.join(repoRoot, 'config.example.yaml')))
+  const blocked = [
+    'data\u0000',
+    'notes/\u0007hidden',
+    'node_modules',
+    'Node_Modules',
+    'node_modules.',
+    'node_modules ',
+    'foo/node_modules/bar',
+    '.github',
+    '.GITHUB.',
+    'scripts',
+    ' scripts ',
+    'Scripts.',
+  ]
+  for (const dataDir of blocked) {
+    expect(configSchema.safeParse({ ...config, data_dir: dataDir }).success, dataDir).toBe(false)
+  }
+  // Хвост срезается: data. и data с пробелом остаются каталогом data, не служебным именем.
+  // notes... не сюда: в строке есть .., это выход наверх, его режет отдельное правило.
+  for (const dataDir of ['data.', 'data ', 'notes.', 'my-scripts', 'script', 'github']) {
+    expect(configSchema.safeParse({ ...config, data_dir: dataDir }).success, dataDir).toBe(true)
+  }
+})
+
+test('папка проекта может лежать вне лаунчера', () => {
+  const config = copy(readData(path.join(repoRoot, 'config.example.yaml')))
+  const projects = config.projects as Array<{ source: { files?: { path: string } } }>
+  const source = projects[0]?.source
+  if (!source?.files) {
+    throw new Error('в примере нет files.path')
+  }
+  source.files.path = '/var/demo-project'
+  expect(configSchema.safeParse(config).success).toBe(true)
+  source.files.path = 'C:/work/demo-project'
+  expect(configSchema.safeParse(config).success).toBe(true)
+  source.files.path = '../outside/demo-project'
+  expect(configSchema.safeParse(config).success).toBe(true)
+  source.files.path = 'proj\u0000ect'
+  expect(configSchema.safeParse(config).success).toBe(false)
+  for (const folder of [
+    '\\\\server\\share',
+    '//server/share',
+    '\\\\?\\C:\\Windows',
+    '\\\\.\\pipe\\x',
+    '\\/evil',
+    '/\\evil',
+  ]) {
+    source.files.path = folder
+    expect(configSchema.safeParse(config).success, folder).toBe(false)
+  }
+})
+
+test('Н37: список файлов мержа не включает .git', () => {
+  const base = {
+    schema_version: 1,
+    updated_at: '2026-11-19T10:00:00.000Z',
+    project: 'demo-game',
+    pr_url: 'https://example.invalid/demo/pull/1',
+    head_sha: '0123456789abcdef0123456789abcdef01234567',
+    tasks: ['task-01'],
+    checks: 'green' as const,
+    summary: 'Демо запрос',
+    state: 'awaiting_owner' as const,
+    history: [{ state: 'awaiting_owner' as const, at: '2026-11-19T10:00:00.000Z', by: 'lead1', why: 'старт' }],
+  }
+  expect(mergeRequestSchema.safeParse({ ...base, files: [{ path: 'note.txt' }] }).success).toBe(true)
+  for (const filePath of ['.git/config', '.git/hooks/pre-commit', 'src/.git/hooks/pre-commit', '.GIT/hooks/x']) {
+    expect(mergeRequestSchema.safeParse({ ...base, files: [{ path: filePath }] }).success, filePath).toBe(false)
+  }
+})
+
+test('Н44: список файлов мержа не лезет в снимки, устройства и пустые сегменты', () => {
+  const base = {
+    schema_version: 1,
+    updated_at: '2026-11-19T10:00:00.000Z',
+    project: 'demo-game',
+    pr_url: 'https://example.invalid/demo/pull/1',
+    head_sha: '0123456789abcdef0123456789abcdef01234567',
+    tasks: ['task-01'],
+    checks: 'green' as const,
+    summary: 'Демо запрос',
+    state: 'awaiting_owner' as const,
+    history: [{ state: 'awaiting_owner' as const, at: '2026-11-19T10:00:00.000Z', by: 'lead1', why: 'старт' }],
+  }
+  for (const filePath of ['note.txt', 'src/note.txt', 'com10.txt', 'readme.md']) {
+    expect(mergeRequestSchema.safeParse({ ...base, files: [{ path: filePath }] }).success, filePath).toBe(true)
+  }
+  const blocked = [
+    'note\u0000.txt',
+    'note\u0001.txt',
+    'backups/mr-other/note.txt',
+    'Backups/mr-other/note.txt',
+    'staging/note.txt',
+    'Staging/a.txt',
+    'backups',
+    'staging',
+    'CON',
+    'con.txt',
+    'PRN',
+    'AUX',
+    'NUL',
+    'COM1',
+    'COM9.txt',
+    'LPT1',
+    'lpt9.dat',
+    'dir/NUL.txt',
+    '.',
+    './note.txt',
+    'note/./x.txt',
+    'a//b.txt',
+    'a/',
+  ]
+  for (const filePath of blocked) {
+    expect(mergeRequestSchema.safeParse({ ...base, files: [{ path: filePath }] }).success, filePath).toBe(false)
+  }
+})
+
 test('по три битых примера на каждую схему', () => {
   const cases: Array<{ name: string; schema: ZodType; value: unknown }> = []
 

@@ -3,12 +3,13 @@
  * НАЗНАЧЕНИЕ: тёмная оболочка пульта по сетке v6 (рейл, чаты, сцена).
  * ВХОД: GET /api/launcher. Имена, записки и задачи приходят только оттуда.
  * ВЫХОД: орбита, карточка бота, Задания, Канбан, Правила и бриф в колонке чата.
- * Пустые состояния ведут на /setup — мастер записывает config.yaml. Мерж сюда не входит.
- * Карточка бота — оверлей: открытие не меняет сетку орбиты.
+ * Пустые состояния ведут на /setup — мастер записывает config.yaml. Запрос на мерж — модалка.
+ * Карточка бота стоит колонкой справа от орбиты и не накрывает правого бота.
  * Записка старше порога уже помечена сервером: здесь только серый цвет и слово «устарело».
  */
 
 import { BriefPanel } from './brief-panel'
+import { MergeModal, type DecideInput, type MergeView } from './merge-modal'
 
 import { useEffect, useState } from 'react'
 
@@ -55,6 +56,7 @@ type View = {
   chats: Chat[]
   tasks: Task[]
   notes: Note[]
+  merge_requests: MergeView[]
 }
 type Failure = { ok: false; file: string; line: number; reason: string }
 type Load = { kind: 'loading' } | { kind: 'network' } | { kind: 'config'; failure: Failure } | { kind: 'ready'; data: View }
@@ -82,8 +84,8 @@ function isView(value: unknown): value is View {
   if (!value || typeof value !== 'object') {
     return false
   }
-  const row = value as { ok?: unknown; projects?: unknown; bots?: unknown; notes?: unknown }
-  return row.ok === true && Array.isArray(row.projects) && Array.isArray(row.bots) && Array.isArray(row.notes)
+  const row = value as { ok?: unknown; projects?: unknown; bots?: unknown; notes?: unknown; merge_requests?: unknown }
+  return row.ok === true && Array.isArray(row.projects) && Array.isArray(row.bots) && Array.isArray(row.notes) && Array.isArray(row.merge_requests)
 }
 
 function isFailure(value: unknown): value is Failure {
@@ -179,6 +181,11 @@ export function Dashboard() {
   const [chatId, setChatId] = useState<string | null>(null)
   const [panel, setPanel] = useState<Panel>('orbit')
   const [botId, setBotId] = useState<string | null>(null)
+  const [csrf, setCsrf] = useState('')
+  const [mergeId, setMergeId] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const [revertOpen, setRevertOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -189,6 +196,8 @@ export function Dashboard() {
           return
         }
         if (isView(body)) {
+          const token = (body as { csrf?: unknown }).csrf
+          setCsrf(typeof token === 'string' ? token : '')
           setLoad({ kind: 'ready', data: body })
           return
         }
@@ -269,6 +278,54 @@ export function Dashboard() {
   const selected = team.find((bot) => bot.id === botId) ?? null
   const notesMissing = data.bots.length > 0 && data.notes.length > 0 && data.notes.every((note) => note.status !== 'ok')
   const blank = data.projects.length === 0 ? 'projects' : data.bots.length === 0 ? 'bots' : null
+  const requests = project ? data.merge_requests.filter((item) => item.project_id === project.id) : []
+  const awaiting = requests.filter((item) => item.state === 'awaiting_owner')
+  const merged = requests.filter((item) => item.state === 'merged')
+  const openMr = requests.find((item) => item.id === mergeId) ?? null
+
+  async function synchronize() {
+    if (csrf) {
+      await fetch('/api/sync/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: '{}',
+      })
+    }
+    setTick((n) => n + 1)
+  }
+
+  async function decide(input: DecideInput) {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/merge/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify(input),
+      })
+      const body = (await res.json()) as { ok?: boolean }
+      setToast(body.ok
+        ? 'Решение записано. Синхронизируйте, чтобы доставить его на бокс.'
+        : 'Решение не записалось')
+      setTick((n) => n + 1)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmRevert() {
+    const target = merged[0]
+    if (!target) {
+      return
+    }
+    await decide({
+      id: target.id,
+      action: 'revert',
+      feedback: '',
+      sent_to_chats: [],
+      accept_risk: false,
+    })
+    setRevertOpen(false)
+  }
 
   return (
     <div className="app" data-testid="shell">
@@ -329,8 +386,31 @@ export function Dashboard() {
             <button type="button" className={panel === 'rules' ? 'tab on' : 'tab'} data-testid="tab-rules" onClick={() => setPanel('rules')}>Правила</button>
           </nav>
           <div className="acts">
+            <button
+              type="button"
+              className="btn"
+              data-testid="merge-requests"
+              disabled={awaiting.length === 0}
+              title={awaiting.length === 0 ? 'Нет запросов на мерж' : 'Открыть запросы'}
+              onClick={() => setMergeId(awaiting[0]?.id ?? null)}
+            >
+              Запросы на мерж ({awaiting.length})
+            </button>
+            {awaiting.length === 0 ? <span data-testid="merge-requests-reason">Нет запросов на мерж</span> : null}
+            <button
+              type="button"
+              className="btn"
+              data-testid="revert"
+              disabled={merged.length === 0}
+              title={merged.length === 0 ? 'Нет смерженного запроса, откатывать нечего' : 'Откатить смерженный запрос'}
+              onClick={() => setRevertOpen(true)}
+            >
+              Откатить
+            </button>
+            {merged.length === 0 ? <span data-testid="revert-reason">Нет смерженного запроса, откатывать нечего</span> : null}
+            <span data-testid="merge-status">{requests.length === 0 ? 'запросов нет' : requests.map((item) => `${item.id}:${item.state}`).join(' ')}</span>
             <span data-testid="sync-label">{data.synced_label ? `данные на ${data.synced_label}` : 'данные на —'}</span>
-            <button type="button" className="btn" onClick={() => setTick((n) => n + 1)}>Синхронизировать</button>
+            <button type="button" className="btn" data-testid="sync" onClick={() => void synchronize()}>Синхронизировать</button>
           </div>
         </header>
         <div className="stage-body">
@@ -338,7 +418,7 @@ export function Dashboard() {
             {blank ? <EmptyState kind={blank} /> : null}
             {!blank && notesMissing ? <EmptyState kind="notes" /> : null}
             {!blank && panel === 'orbit' ? (
-              <section className="orbit-wrap card" data-testid="orbit">
+              <section className={selected ? 'orbit-wrap card has-card' : 'orbit-wrap card'} data-testid="orbit">
                 <div className="orbit-head">
                   <h2>Команда {project?.title}</h2>
                   <p className="sub">{project?.lead_name} — главный в проекте. Нажмите на бота — откроется карточка.</p>
@@ -487,6 +567,32 @@ export function Dashboard() {
           </aside>
         </div>
       </div>
+      {toast ? <p className="toast" data-testid="toast" role="status">{toast}</p> : null}
+      {openMr ? (
+        <MergeModal
+          key={`${openMr.id}:${openMr.updated_at}:${openMr.iterations.length}:${openMr.state}`}
+          mr={openMr}
+          chats={chats.map((item) => ({ id: item.id, title: item.title }))}
+          busy={busy}
+          onClose={() => setMergeId(null)}
+          onDecide={(input) => void decide(input)}
+          onSync={() => void synchronize()}
+        />
+      ) : null}
+      {revertOpen ? (
+        <div className="modal-bg" data-testid="revert-dialog">
+          <div className="merge-dialog" role="dialog" aria-modal="true" aria-labelledby="revert-title">
+            <h2 id="revert-title">Откатить</h2>
+            <p>Откат тоже требует да владельца.</p>
+            <div className="merge-actions">
+              <button type="button" className="btn" onClick={() => setRevertOpen(false)}>Закрыть</button>
+              <button type="button" className="btn primary" data-testid="revert-yes" disabled={busy} onClick={() => void confirmRevert()}>
+                Да, откатить
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
