@@ -32,8 +32,8 @@ bots: # grok_id — вымышленный id для ссылки grokbot://app/
     paused: false
     grok_id: "demo-rev"
   # Свой бот. Значения ключа здесь нет: только имя переменной из .env.
-  # Пресет DeepSeek — https://api.deepseek.com
-  # Пресет Qwen — https://dashscope.aliyuncs.com/compatible-mode/v1
+  # Пресет deepseek без base_url подставляет https://api.deepseek.com
+  # Пресет qwen без base_url подставляет https://dashscope.aliyuncs.com/compatible-mode/v1
   # base_url можно заменить на другой проверенный OpenAI-совместимый адрес.
   - id: nora
     name: "Нора"

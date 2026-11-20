@@ -13,7 +13,7 @@ import { afterEach, expect, test } from 'vitest'
 import { BIND_HOST } from '../bind.js'
 import { repoRoot } from '../root.js'
 import { startServer, type RunningServer } from '../server.js'
-import { deliverBrief } from './turn.js'
+import { deliverBrief, deliverChat } from './turn.js'
 import { noteBytes, readTask, readWakeCount } from './store.js'
 
 const KEY = 'demo-deepseek-key'
@@ -337,6 +337,50 @@ test('смена модели видна со следующего запрос�
   expect(models).toEqual(['deepseek-chat', 'qwen-plus'])
 })
 
+test('ключ в реплике и в ответе мока прячется в API и в файле чата', async () => {
+  process.env.DEEPSEEK_API_KEY = KEY
+  const made = project('http://127.0.0.1:9/v1')
+  const fetchImpl = (async () => new Response(JSON.stringify({
+    choices: [{ message: { content: `ответ ${KEY}` } }],
+  }), { status: 200 })) as typeof fetch
+  const chat = await deliverChat({
+    root: repoRoot(),
+    options: { configPath: made.configPath },
+    botId: 'nora',
+    text: `вопрос ${KEY}`,
+    projectId: 'demo-keys',
+    chatId: 'build',
+    deps: { lookup: localLookup, env: process.env, fetchImpl },
+  })
+  expect(chat.ok).toBe(true)
+  if (chat.ok) {
+    expect(chat.reply.includes(KEY)).toBe(false)
+    expect(chat.reply.includes('[secret]')).toBe(true)
+    expect(chat.messages.some((message) => message.text.includes(KEY))).toBe(false)
+    expect(chat.messages.some((message) => message.role === 'user' && message.text.includes('[secret]'))).toBe(true)
+    expect(chat.messages.some((message) => message.role === 'assistant' && message.text.includes('[secret]'))).toBe(true)
+  }
+  const chatFile = readFileSync(path.join(made.dir, 'chats', 'nora.json'), 'utf8')
+  expect(chatFile.includes(KEY)).toBe(false)
+  expect(chatFile.includes('[secret]')).toBe(true)
+
+  const brief = await deliverBrief({
+    root: repoRoot(),
+    options: { configPath: made.configPath },
+    projectId: 'demo-keys',
+    chatId: 'build',
+    taskId: 'task-01',
+    deps: { lookup: localLookup, env: process.env, fetchImpl },
+  })
+  expect(brief.ok).toBe(true)
+  if (brief.ok) {
+    expect(brief.reply.includes(KEY)).toBe(false)
+    expect(brief.reply.includes('[secret]')).toBe(true)
+  }
+  const afterBrief = readFileSync(path.join(made.dir, 'chats', 'nora.json'), 'utf8')
+  expect(afterBrief.includes(KEY)).toBe(false)
+})
+
 test('H14: same-site и cross-site не вызывают модель', async () => {
   process.env.DEEPSEEK_API_KEY = KEY
   let hits = 0
@@ -384,6 +428,97 @@ test('H14: same-site и cross-site не вызывают модель', async ()
       expect(await send(site)).toBe(200)
       expect(hits).toBe(before + 1)
     }
+  } finally {
+    await server?.close()
+    await new Promise<void>((resolve) => {
+      mock.close(() => resolve())
+    })
+  }
+})
+
+test('H14: чат и бриф без токена, с чужим токеном и без Origin не вызывают модель', async () => {
+  process.env.DEEPSEEK_API_KEY = KEY
+  let hits = 0
+  const mock = http.createServer((req, res) => {
+    if (req.method === 'POST') {
+      hits += 1
+    }
+    res.end(JSON.stringify({ choices: [{ message: { content: 'ок' } }] }))
+  })
+  await new Promise<void>((resolve) => {
+    mock.listen(0, '127.0.0.1', () => resolve())
+  })
+  const address = mock.address()
+  const mockPort = address && typeof address === 'object' ? address.port : 0
+  const made = project(`http://127.0.0.1:${mockPort}/v1`)
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0, configPath: made.configPath })
+    const origin = `http://${BIND_HOST}:${server.port}`
+    const launcher = await fetch(`${origin}/api/launcher`)
+    const csrf = ((await launcher.json()) as { csrf?: string }).csrf ?? ''
+    expect(csrf.length).toBeGreaterThan(10)
+    const routes = [
+      { path: '/api/chat', body: { bot: 'nora', text: 'привет', project: 'demo-keys', chat: 'build' } },
+      { path: '/api/brief/send', body: { project: 'demo-keys', chat: 'build', task: 'task-01' } },
+    ]
+    for (const route of routes) {
+      const cases: Array<{ name: string; headers: Record<string, string> }> = [
+        { name: 'без токена', headers: { Origin: origin, 'Content-Type': 'application/json' } },
+        { name: 'чужой токен', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-CSRF-Token': 'not-the-token' } },
+        { name: 'без Origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf } },
+      ]
+      for (const item of cases) {
+        hits = 0
+        const res = await fetch(`${origin}${route.path}`, {
+          method: 'POST',
+          headers: item.headers,
+          body: JSON.stringify(route.body),
+        })
+        expect(res.status, `${route.path} ${item.name}`).toBe(403)
+        expect(hits, `${route.path} ${item.name}`).toBe(0)
+      }
+    }
+  } finally {
+    await server?.close()
+    await new Promise<void>((resolve) => {
+      mock.close(() => resolve())
+    })
+  }
+})
+
+test('POST /api/chat на паузе не вызывает модель', async () => {
+  process.env.DEEPSEEK_API_KEY = KEY
+  let hits = 0
+  const mock = http.createServer((req, res) => {
+    if (req.method === 'POST') {
+      hits += 1
+    }
+    res.end(JSON.stringify({ choices: [{ message: { content: 'ок' } }] }))
+  })
+  await new Promise<void>((resolve) => {
+    mock.listen(0, '127.0.0.1', () => resolve())
+  })
+  const address = mock.address()
+  const mockPort = address && typeof address === 'object' ? address.port : 0
+  const made = project(`http://127.0.0.1:${mockPort}/v1`, 'deepseek-chat', true)
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0, configPath: made.configPath })
+    const origin = `http://${BIND_HOST}:${server.port}`
+    const launcher = await fetch(`${origin}/api/launcher`)
+    const csrf = ((await launcher.json()) as { csrf?: string }).csrf ?? ''
+    const res = await fetch(`${origin}/api/chat`, {
+      method: 'POST',
+      headers: {
+        Origin: origin,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrf,
+      },
+      body: JSON.stringify({ bot: 'nora', text: 'привет', project: 'demo-keys', chat: 'build' }),
+    })
+    expect(res.status).toBe(409)
+    expect(hits).toBe(0)
   } finally {
     await server?.close()
     await new Promise<void>((resolve) => {

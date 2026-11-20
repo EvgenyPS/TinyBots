@@ -124,11 +124,19 @@ async function readLimited(res: Response): Promise<{ ok: true; text: string } | 
 }
 
 function isTimeout(error: unknown): boolean {
-  if (!error || typeof error !== 'object' || !('name' in error)) {
+  if (!error || typeof error !== 'object') {
     return false
   }
-  const name = (error as { name?: unknown }).name
-  return name === 'TimeoutError' || name === 'AbortError'
+  if ('name' in error) {
+    const name = (error as { name?: unknown }).name
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      return true
+    }
+  }
+  if ('cause' in error) {
+    return isTimeout((error as { cause?: unknown }).cause)
+  }
+  return false
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -212,7 +220,18 @@ export async function completeChat(input: {
       logSafe(`llm: статус ${response.status}`)
       return fail('network')
     }
-    const limited = await readLimited(response)
+    let limited: { ok: true; text: string } | { ok: false }
+    try {
+      limited = await readLimited(response)
+    } catch (error) {
+      // Заголовки уже пришли. Зависание и обрыв сокета не должны стать 500 со стеком.
+      if (isTimeout(error)) {
+        logSafe('llm: таймаут')
+        return fail('timeout')
+      }
+      logSafe('llm: сеть')
+      return fail('network')
+    }
     if (!limited.ok) {
       logSafe('llm: тело больше лимита')
       return fail('too_large')

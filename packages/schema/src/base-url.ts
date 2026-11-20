@@ -33,6 +33,11 @@ blocked.addSubnet('fc00::', 7, 'ipv6')
 blocked.addSubnet('fe80::', 10, 'ipv6')
 blocked.addSubnet('ff00::', 8, 'ipv6')
 blocked.addAddress('::', 'ipv6')
+// IPv6 со встроенным IPv4: NAT64, 6to4, совместимый ::/96 и устаревший site-local.
+blocked.addSubnet('64:ff9b::', 96, 'ipv6')
+blocked.addSubnet('2002::', 16, 'ipv6')
+blocked.addSubnet('::', 96, 'ipv6')
+blocked.addSubnet('fec0::', 10, 'ipv6')
 
 export type AddressKind = 'loopback' | 'blocked' | 'public' | 'invalid'
 

@@ -40,7 +40,8 @@ const DOCUMENTS: ReadonlyArray<{ file: string; id: string; schema: ZodType }> = 
 
 export function jsonDocuments(): JsonDocument[] {
   return DOCUMENTS.map((item) => {
-    const raw = toJSONSchema(item.schema, { target: 'draft-07', reused: 'inline' })
+    // input: пресет deepseek/qwen дописывает base_url уже после разбора YAML.
+    const raw = toJSONSchema(item.schema, { target: 'draft-07', reused: 'inline', io: 'input' })
     const body = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>
     return {
       file: item.file,

@@ -25,6 +25,27 @@ test('DEEPSEEK_API_KEY проходит, чужие имена переменн�
   }
 })
 
+test('пресет deepseek и qwen подставляет официальный https, явный адрес остаётся', () => {
+  const { base_url, ...withoutUrl } = apiBot
+  void base_url
+  const deepseek = apiBotSchema.safeParse(withoutUrl)
+  expect(deepseek.success).toBe(true)
+  if (deepseek.success) {
+    expect(deepseek.data.base_url).toBe('https://api.deepseek.com')
+  }
+  const qwen = apiBotSchema.safeParse({ ...withoutUrl, provider: 'qwen', api_key_env: 'QWEN_API_KEY' })
+  expect(qwen.success).toBe(true)
+  if (qwen.success) {
+    expect(qwen.data.base_url).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
+  }
+  expect(apiBotSchema.safeParse({ ...withoutUrl, provider: 'other' }).success).toBe(false)
+  const replaced = apiBotSchema.safeParse({ ...apiBot, base_url: 'https://example.com/v1' })
+  expect(replaced.success).toBe(true)
+  if (replaced.success) {
+    expect(replaced.data.base_url).toBe('https://example.com/v1')
+  }
+})
+
 test('у бота Grok нет полей модели, у своего бота нет grok_id и значения ключа', () => {
   expect(grokBotSchema.safeParse({ id: 'lead1', name: 'Ава', role: 'тимлид', grok_id: 'demo-ava' }).success).toBe(true)
   expect(grokBotSchema.safeParse({

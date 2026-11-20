@@ -191,6 +191,95 @@ test('запрос без потока, журнал без промпта и о
   expect(blocked.ok).toBe(false)
 })
 
+test('заголовки без тела и обрыв после заголовков не роняют процесс и не пишут стек', async () => {
+  async function listen(mode: 'hang' | 'drop'): Promise<{ port: number; close: () => Promise<void> }> {
+    const sockets = new Set<import('node:net').Socket>()
+    const server = http.createServer((req, res) => {
+      req.resume()
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.write('{')
+      if (mode === 'drop') {
+        res.destroy()
+      }
+    })
+    server.on('connection', (socket) => {
+      sockets.add(socket)
+      socket.on('error', () => undefined)
+      socket.on('close', () => {
+        sockets.delete(socket)
+      })
+    })
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve())
+    })
+    const address = server.address()
+    const port = address && typeof address === 'object' ? address.port : 0
+    return {
+      port,
+      close: () => new Promise((resolve) => {
+        for (const socket of sockets) {
+          socket.destroy()
+        }
+        server.close(() => resolve())
+      }),
+    }
+  }
+
+  const hung = await listen('hang')
+  const hungLogs = capture()
+  try {
+    const result = await completeChat({
+      baseUrl: `http://127.0.0.1:${hung.port}/v1`,
+      apiKey: KEY,
+      model: 'deepseek-chat',
+      system: PROMPT,
+      user: PROMPT,
+      lookup: localLookup,
+      timeoutMs: 400,
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('timeout')
+      expect(result.message.includes(KEY)).toBe(false)
+    }
+    const text = hungLogs.text()
+    expect(text.includes('undici')).toBe(false)
+    expect(text.includes('\n    at ')).toBe(false)
+    expect(text.includes(KEY)).toBe(false)
+    expect(text.includes(PROMPT)).toBe(false)
+  } finally {
+    hungLogs.stop()
+    await hung.close()
+  }
+
+  const dropped = await listen('drop')
+  const dropLogs = capture()
+  try {
+    const result = await completeChat({
+      baseUrl: `http://127.0.0.1:${dropped.port}/v1`,
+      apiKey: KEY,
+      model: 'deepseek-chat',
+      system: PROMPT,
+      user: PROMPT,
+      lookup: localLookup,
+      timeoutMs: 2_000,
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('network')
+      expect(result.message.includes(KEY)).toBe(false)
+    }
+    const text = dropLogs.text()
+    expect(text.includes('undici')).toBe(false)
+    expect(text.includes('\n    at ')).toBe(false)
+    expect(text.includes(KEY)).toBe(false)
+    expect(text.includes(PROMPT)).toBe(false)
+  } finally {
+    dropLogs.stop()
+    await dropped.close()
+  }
+})
+
 test('3xx — ошибка, цель редиректа не вызывалась', async () => {
   let secretHits = 0
   const server = http.createServer((req, res) => {

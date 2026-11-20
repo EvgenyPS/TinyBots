@@ -90,7 +90,6 @@
               "instructions",
               "provider",
               "model",
-              "base_url",
               "api_key_env"
             ],
             "additionalProperties": false

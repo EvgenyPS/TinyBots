@@ -41,14 +41,36 @@ export const grokBotSchema = z.strictObject({
   grok_id: z.string().min(1).optional(),
 })
 
-/** Свой бот. Значения ключа в YAML нет: только имя переменной окружения. */
+function officialBaseUrl(provider: string): string | undefined {
+  if (provider === 'deepseek' || provider === 'qwen') {
+    return LLM_PRESET_BASE_URL[provider]
+  }
+  return undefined
+}
+
+/**
+ * Свой бот. Значения ключа в YAML нет: только имя переменной окружения.
+ * Провайдер deepseek или qwen без base_url получает официальный HTTPS.
+ * Явный base_url не подменяется: его можно заменить на другой проверенный адрес.
+ */
 export const apiBotSchema = z.strictObject({
   ...botCommon,
   instructions: z.string().min(1),
   provider: z.string().min(1),
   model: z.string().min(1),
-  base_url: z.string().min(1).refine((value) => inspectBaseUrl(value).ok, 'base_url'),
+  base_url: z.string().min(1).optional(),
   api_key_env: z.string().regex(API_KEY_ENV_PATTERN, 'имя переменной *_API_KEY'),
+}).superRefine((bot, ctx) => {
+  const base = bot.base_url ?? officialBaseUrl(bot.provider)
+  if (base === undefined || !inspectBaseUrl(base).ok) {
+    ctx.addIssue({ code: 'custom', path: ['base_url'], message: 'base_url' })
+  }
+}).transform((bot) => {
+  const base = bot.base_url ?? officialBaseUrl(bot.provider)
+  if (base === undefined) {
+    return { ...bot, base_url: '' }
+  }
+  return { ...bot, base_url: base }
 })
 
 /**
