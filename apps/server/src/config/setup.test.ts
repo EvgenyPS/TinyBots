@@ -10,6 +10,7 @@ import http from 'node:http'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, expect, test } from 'vitest'
 import { BIND_HOST } from '../bind.js'
 import { tokensMatch } from '../csrf.js'
@@ -165,6 +166,17 @@ test('папка проекта вне лаунчера принимается',
   const relative = path.relative(path.join(root, 'proj'), outside)
   const escaped = await inspectSource(root, 'proj/config.yaml', relative)
   expect(escaped).toMatchObject({ ok: true, git: false, warning: GIT_HIDDEN_WARNING })
+})
+
+test('UNC и device-путь не доходят до диска, safe.directory нет', async () => {
+  const root = scratch()
+  mkdirSync(path.join(root, 'proj'), { recursive: true })
+  const source = readFileSync(fileURLToPath(new URL('./source-check.ts', import.meta.url)), 'utf8')
+  expect(source.includes('safe.directory=')).toBe(false)
+  for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x']) {
+    const report = await inspectSource(root, 'proj/config.yaml', folder)
+    expect(report, folder).toMatchObject({ ok: false, reason: 'путь к папке проекта' })
+  }
 })
 
 test('нет config.yaml — мастер нужен, демо и пример не перезаписываются', () => {
@@ -443,6 +455,64 @@ test('HTTP: нет Origin, пустой Origin и строка null не пиш�
   } finally {
     await server?.close()
     rmSync(path.dirname(absolute), { recursive: true, force: true })
+  }
+})
+
+test('HTTP: проверка папки требует свой Origin и токен', async () => {
+  const rel = 'data/setup-source/config.yaml'
+  const plain = path.join(repoRoot(), 'data', 'setup-source', 'plain')
+  rmSync(path.dirname(plain), { recursive: true, force: true })
+  mkdirSync(plain, { recursive: true })
+  writeFileSync(path.join(plain, 'note.txt'), 'x\n')
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0, configPath: rel })
+    const host = `${BIND_HOST}:${server.port}`
+    const opened = await call(server.port, 'GET', '/api/setup', { Host: host })
+    const csrf = (opened.json as { csrf?: string }).csrf ?? ''
+    const okHeaders = { Host: host, Origin: `http://${host}`, 'X-CSRF-Token': csrf }
+    const blocked: Array<{ name: string; headers: Record<string, string> }> = [
+      { name: 'нет токена', headers: { Host: host, Origin: `http://${host}` } },
+      { name: 'чужой токен', headers: { ...okHeaders, 'X-CSRF-Token': 'not-the-token' } },
+      { name: 'нет Origin и нет токена', headers: { Host: host } },
+      { name: 'Origin null', headers: { Host: host, Origin: 'null', 'X-CSRF-Token': csrf } },
+      { name: 'чужой порт', headers: { Host: host, Origin: `http://${BIND_HOST}:9`, 'X-CSRF-Token': csrf } },
+      { name: 'чужой Host', headers: { Host: `evil.example:${server.port}`, Origin: `http://${host}`, 'X-CSRF-Token': csrf } },
+    ]
+    for (const item of blocked) {
+      const sent = await call(server.port, 'GET', '/api/setup/source?path=plain', item.headers)
+      expect(sent.status, item.name).toBe(403)
+    }
+    const allowed = await call(server.port, 'GET', '/api/setup/source?path=plain', okHeaders)
+    expect(allowed.status).toBe(200)
+    expect(allowed.json).toMatchObject({ ok: true, path: 'plain', git: false })
+    // Страница шлёт этот GET без Origin. Чужой сайт так токен не подставит.
+    const fromPage = await call(server.port, 'GET', '/api/setup/source?path=plain', {
+      Host: host,
+      'X-CSRF-Token': csrf,
+    })
+    expect(fromPage.status).toBe(200)
+    const uncBare = await call(
+      server.port,
+      'GET',
+      `/api/setup/source?path=${encodeURIComponent('\\\\server\\share')}`,
+      { Host: host },
+    )
+    expect(uncBare.status).toBe(403)
+    for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x']) {
+      const sent = await call(
+        server.port,
+        'GET',
+        `/api/setup/source?path=${encodeURIComponent(folder)}`,
+        okHeaders,
+      )
+      expect(sent.status, folder).toBe(422)
+      expect(sent.json).toMatchObject({ ok: false, reason: 'путь к папке проекта' })
+    }
+    expect(readFileSync(path.join(plain, 'note.txt'), 'utf8')).toBe('x\n')
+  } finally {
+    await server?.close()
+    rmSync(path.dirname(plain), { recursive: true, force: true })
   }
 })
 

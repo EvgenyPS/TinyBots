@@ -57,9 +57,8 @@ function gitPrefix(dir: string): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
       'git',
-      // Только этот вызов. Звёздочка не пишет конфиг: на раннере Windows владелец
-      // временной папки и процесс git иногда расходятся, и rev-parse молчит.
-      ['-c', 'safe.directory=*', '-C', dir, 'rev-parse', '--show-prefix'],
+      // Без safe.directory: звёздочка заставила бы git открыть любой путь, включая UNC.
+      ['-C', dir, 'rev-parse', '--show-prefix'],
       { timeout: 4000, windowsHide: true, encoding: 'utf8', env: gitEnv() },
       (error, stdout) => {
         if (error) {

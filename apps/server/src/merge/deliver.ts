@@ -5,6 +5,7 @@
  * ВЫХОД: обновлённые запросы. Исполнитель стартует только из delivered и только с брифом.
  * GitHub здесь — мок. Режим files перед заменой пишет backups/<mr-id>/.
  * Повторная синхронизация то же решение второй раз не применяет.
+ * Ошибка одного запроса не останавливает остальные в этом вызове.
  */
 
 import path from 'node:path'
@@ -267,14 +268,18 @@ export async function deliverOutbox(input: DeliverInput): Promise<DeliverReport>
   const feedbacks = readFeedbackFiles(input.dataDir)
   const applied: Array<{ id: string; state: string }> = []
   for (const stored of readMerges(input.dataDir)) {
-    const next = await applyOne(stored, input, decisions, feedbacks)
-    // null и тот же объект — решать было нечего. Новый объект пишем, даже если статус
-    // снова awaiting_owner: так на диск попадает итерация после «на доработку».
-    if (!next || next === stored.mr) {
-      continue
+    try {
+      const next = await applyOne(stored, input, decisions, feedbacks)
+      // null и тот же объект — решать было нечего. Новый объект пишем, даже если статус
+      // снова awaiting_owner: так на диск попадает итерация после «на доработку».
+      if (!next || next === stored.mr) {
+        continue
+      }
+      await writeMergeFile(stored.file, next)
+      applied.push({ id: stored.id, state: next.state })
+    } catch {
+      // Сбой этого запроса (нет снимка, симлинк, обрыв диска) не рвёт весь синк.
     }
-    await writeMergeFile(stored.file, next)
-    applied.push({ id: stored.id, state: next.state })
   }
   return { applied }
 }

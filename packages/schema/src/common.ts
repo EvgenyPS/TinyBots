@@ -51,11 +51,36 @@ function hasControlChar(value: string): boolean {
   return false
 }
 
+/**
+ * UNC и device-путь Windows. До диска и git такое не доходит:
+ * \\server\share и //server открывают сеть, \\?\ и \\.\ — устройство.
+ * Обычный /var или C:/work сюда не попадает: у них один слеш в начале.
+ */
+function isUncOrDevicePath(value: string): boolean {
+  return value.startsWith('//') || value.startsWith('\\\\')
+}
+
 export function isProjectFolderPath(value: string): boolean {
   if (value.length === 0 || value.length > 300) {
     return false
   }
-  return !hasControlChar(value)
+  if (hasControlChar(value) || isUncOrDevicePath(value)) {
+    return false
+  }
+  return true
+}
+
+/**
+ * Файл запроса в режиме files. Относительный путь внутри папки проекта.
+ * Сегмент .git (в любом регистре), в том числе .git/hooks, не переносим:
+ * иначе мерж записал бы хуки репозитория.
+ */
+export function isMergeFilePath(value: string): boolean {
+  if (!isContainedPath(value)) {
+    return false
+  }
+  const segments = value.split('/').filter((part) => part.length > 0 && part !== '.')
+  return !segments.some((part) => part.toLowerCase() === '.git')
 }
 
 /** Путь внутри конфига: относительный, без выхода наверх и без диска. Чужие абсолютные пути здесь не живут. */

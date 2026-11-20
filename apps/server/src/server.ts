@@ -6,6 +6,9 @@
  * Чужой Host, Origin или чужой порт — 403. Запись — POST /api/setup и решения по мержу:
  * тот же requestAllowed, что и у чтения, плюс непустой Origin и токен.
  * Нет заголовка Origin или он пустой — чтение пускает (так открывают страницу), запись нет.
+ * Исключение: GET /api/setup/source читает диск и запускает git.
+ * Токен обязателен до этого. Чужой Origin, строка null и чужой порт — 403.
+ * Заголовка Origin у GET с той же страницы нет: браузер его не ставит, и это не чужой сайт.
  * Строка null — это не пустой заголовок. requestAllowed отклоняет её и на чтении, и на записи:
  * непрозрачный origin не разбирается как http://127.0.0.1.
  * Параллельные POST идут по одному. Любой другой не-GET отвечает 405.
@@ -229,6 +232,17 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
 
   app.get('/api/setup/source', async (c) => {
     c.header('Cache-Control', 'no-store')
+    const host = hostFromContext(c)
+    const origin = c.req.header('origin')
+    // Чужой сайт не должен дотянуть этот GET до диска и git.
+    // Своя страница шлёт GET без Origin: браузер не ставит его на same-origin.
+    // Origin, если он есть, обязан быть адресом этой страницы. Токен — до диска.
+    if (!requestAllowed(host, origin, boundPort.current)) {
+      return c.json({ error: 'forbidden_host' }, 403)
+    }
+    if (!tokensMatch(csrf, c.req.header('x-csrf-token'))) {
+      return c.json({ error: 'csrf' }, 403)
+    }
     const report = await inspectSource(root, options?.configPath, c.req.query('path') ?? '')
     return c.json(report, report.ok ? 200 : 422)
   })

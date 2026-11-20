@@ -6,12 +6,16 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { MERGE_STATES, MERGE_TRANSITIONS, configSchema, mergeRequestSchema, type MergeRequest, type MergeState } from '@tinybots/schema'
 import { stringify } from 'yaml'
 import { afterEach, expect, test } from 'vitest'
+import { BIND_HOST } from '../bind.js'
+import { repoRoot } from '../root.js'
+import { startServer, type RunningServer } from '../server.js'
 import { buildMergeBrief, buildRevertBrief } from './authorize.js'
 import { deliverOutbox } from './deliver.js'
 import { readMerges } from './disk.js'
@@ -201,13 +205,130 @@ test('C9: снимок backups и откат совпадают по sha256', as
   writeFileSync(live, original)
   writeFileSync(path.join(project, 'staging', 'note.txt'), 'после мержа\n')
   const before = await sha256Of(live)
-  await acceptProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['note.txt'] })
+  writeFileSync(path.join(project, 'staging', 'fresh.txt'), 'новый\n')
+  await acceptProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['note.txt', 'fresh.txt'] })
   expect(readFileSync(live, 'utf8')).toBe('после мержа\n')
+  expect(readFileSync(path.join(project, 'fresh.txt'), 'utf8')).toBe('новый\n')
   const backup = path.join(project, 'backups', 'mr-cycle', 'note.txt')
   expect(readFileSync(backup).equals(original)).toBe(true)
-  await restoreProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['note.txt'] })
+  await restoreProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['note.txt', 'fresh.txt'] })
   expect(await sha256Of(live)).toBe(before)
   expect(createHash('sha256').update(original).digest('hex')).toBe(before)
+  expect(existsSync(path.join(project, 'fresh.txt'))).toBe(false)
+})
+
+test('C9: ошибка отката одного запроса не рвёт синк', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  const data = path.join(root, 'data')
+  mkdirSync(path.join(project), { recursive: true })
+  mkdirSync(path.join(data, 'merge_requests'), { recursive: true })
+  mkdirSync(path.join(data, 'outbox', 'decisions'), { recursive: true })
+  writeFileSync(path.join(project, 'note.txt'), 'до мержа\n')
+  const broken = request('merged', { id: 'mr-bad', mode: 'files', files: [{ path: 'note.txt' }] })
+  const healthy = request('awaiting_owner', { id: 'mr-ok' })
+  writeFileSync(path.join(data, 'merge_requests', 'mr-bad.json'), `${JSON.stringify(broken, null, 2)}\n`)
+  writeFileSync(path.join(data, 'merge_requests', 'mr-ok.json'), `${JSON.stringify(healthy, null, 2)}\n`)
+  const decision = {
+    schema_version: 1,
+    updated_at: AT,
+    head_sha: SHA,
+    by: 'owner',
+    at: AT,
+    project: 'demo-game',
+  }
+  writeFileSync(path.join(data, 'outbox', 'decisions', 'mr-bad.json'), `${JSON.stringify({
+    ...decision,
+    action: 'revert',
+    pr_url: broken.pr_url,
+    mr_id: 'mr-bad',
+  }, null, 2)}\n`)
+  writeFileSync(path.join(data, 'outbox', 'decisions', 'mr-ok.json'), `${JSON.stringify({
+    ...decision,
+    action: 'approved',
+    pr_url: healthy.pr_url,
+    mr_id: 'mr-ok',
+  }, null, 2)}\n`)
+  const config = configSchema.parse(baseConfig)
+  const report = await deliverOutbox({ dataDir: data, config, configDirectory: root, now: new Date(AT) })
+  expect(report.applied).toEqual([{ id: 'mr-ok', state: 'merged' }])
+  expect(readMerges(data).find((item) => item.id === 'mr-bad')?.mr.state).toBe('merged')
+  expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('до мержа\n')
+})
+
+test('симлинк не выносит файл и снимок за папку проекта', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  const outside = path.join(root, 'outside')
+  mkdirSync(path.join(project, 'staging'), { recursive: true })
+  mkdirSync(outside, { recursive: true })
+  const secret = path.join(outside, 'secret.txt')
+  writeFileSync(secret, 'секрет\n')
+  writeFileSync(path.join(project, 'note.txt'), 'до\n')
+  writeFileSync(path.join(project, 'staging', 'note.txt'), 'после\n')
+  symlinkSync(secret, path.join(project, 'staging', 'leak.txt'))
+  await expect(acceptProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['leak.txt'] })).rejects.toThrow()
+  expect(readFileSync(secret, 'utf8')).toBe('секрет\n')
+
+  symlinkSync(secret, path.join(project, 'live-link.txt'))
+  writeFileSync(path.join(project, 'staging', 'live-link.txt'), 'после\n')
+  await expect(acceptProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['live-link.txt'] })).rejects.toThrow()
+  expect(readFileSync(secret, 'utf8')).toBe('секрет\n')
+
+  symlinkSync(outside, path.join(project, 'sub'))
+  mkdirSync(path.join(project, 'staging', 'sub'), { recursive: true })
+  writeFileSync(path.join(project, 'staging', 'sub', 'a.txt'), 'после\n')
+  await expect(acceptProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['sub/a.txt'] })).rejects.toThrow()
+  expect(readdirSync(outside)).toEqual(['secret.txt'])
+
+  symlinkSync(outside, path.join(project, 'backups'))
+  await expect(acceptProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['note.txt'] })).rejects.toThrow()
+  expect(readdirSync(outside)).toEqual(['secret.txt'])
+  expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('до\n')
+})
+
+test('Н37: .git в списке файлов не переносится', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  mkdirSync(path.join(project, 'staging', '.git', 'hooks'), { recursive: true })
+  writeFileSync(path.join(project, 'staging', '.git', 'hooks', 'pre-commit'), 'хук\n')
+  await expect(acceptProjectFiles({
+    projectDir: project,
+    mrId: 'mr-cycle',
+    files: ['.git/hooks/pre-commit'],
+  })).rejects.toThrow()
+  expect(existsSync(path.join(project, '.git', 'hooks', 'pre-commit'))).toBe(false)
+})
+
+test('C11: обрыв files-мержа возвращает исходные sha256', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  mkdirSync(path.join(project, 'staging'), { recursive: true })
+  const fileA = path.join(project, 'a.txt')
+  const fileB = path.join(project, 'b.txt')
+  writeFileSync(fileA, 'а-до\n')
+  writeFileSync(fileB, 'б-до\n')
+  writeFileSync(path.join(project, 'staging', 'a.txt'), 'а-после\n')
+  const beforeA = await sha256Of(fileA)
+  const beforeB = await sha256Of(fileB)
+  await expect(acceptProjectFiles({ projectDir: project, mrId: 'mr-cycle', files: ['a.txt', 'b.txt'] })).rejects.toThrow()
+  expect(await sha256Of(fileA)).toBe(beforeA)
+  expect(await sha256Of(fileB)).toBe(beforeB)
+  writeFileSync(path.join(project, 'staging', 'b.txt'), 'б-после\n')
+  await expect(acceptProjectFiles({
+    projectDir: project,
+    mrId: 'mr-cycle',
+    files: ['a.txt', 'b.txt'],
+    afterCopy: (index) => {
+      if (index === 0) {
+        throw new Error('обрыв')
+      }
+    },
+  })).rejects.toThrow('обрыв')
+  expect(await sha256Of(fileA)).toBe(beforeA)
+  expect(await sha256Of(fileB)).toBe(beforeB)
+  expect(readFileSync(fileA, 'utf8')).toBe('а-до\n')
+  expect(readFileSync(fileB, 'utf8')).toBe('б-до\n')
 })
 
 test('C12: решение в outbox не меняет статус, доставка меняет', async () => {
@@ -349,4 +470,93 @@ test('HTTP: решение не двигает файл запроса до си
   expect(decided.body.state).toBe('awaiting_owner')
   const onDisk = JSON.parse(readFileSync(path.join(data, 'mr-cycle.json'), 'utf8')) as { state: string }
   expect(onDisk.state).toBe('awaiting_owner')
+})
+
+function httpCall(
+  port: number,
+  method: string,
+  pathname: string,
+  headers: Record<string, string>,
+  body?: string,
+): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { hostname: BIND_HOST, port, path: pathname, method, headers },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+        })
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          try {
+            resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) as unknown })
+          } catch {
+            resolve({ status: res.statusCode ?? 0, json: text })
+          }
+        })
+      },
+    )
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
+test('HTTP: decide и sync без своего Origin или токена не меняют файлы', async () => {
+  const rel = 'data/merge-guard/config.yaml'
+  const dir = path.join(repoRoot(), 'data', 'merge-guard')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(path.join(dir, 'data', 'merge_requests'), { recursive: true })
+  const mr = request('awaiting_owner')
+  const mrFile = path.join(dir, 'data', 'merge_requests', 'mr-cycle.json')
+  writeFileSync(path.join(dir, 'config.yaml'), stringify(baseConfig))
+  writeFileSync(mrFile, `${JSON.stringify(mr, null, 2)}\n`)
+  const before = readFileSync(mrFile)
+  let server: RunningServer | undefined
+  try {
+    server = await startServer({ port: 0, configPath: rel })
+    const host = `${BIND_HOST}:${server.port}`
+    const opened = await httpCall(server.port, 'GET', '/api/launcher', { Host: host })
+    expect(opened.status).toBe(200)
+    const csrf = (opened.json as { csrf?: string }).csrf ?? ''
+    expect(csrf.length).toBeGreaterThan(10)
+    const decideBody = JSON.stringify({ id: 'mr-cycle', action: 'approved' })
+    const routes = [
+      { path: '/api/merge/decide', body: decideBody },
+      { path: '/api/sync/apply', body: '{}' },
+    ]
+    for (const route of routes) {
+      const cases: Array<{ name: string; headers: Record<string, string> }> = [
+        { name: 'нет токена', headers: { Host: host, Origin: `http://${host}`, 'Content-Type': 'application/json' } },
+        {
+          name: 'чужой токен',
+          headers: { Host: host, Origin: `http://${host}`, 'Content-Type': 'application/json', 'X-CSRF-Token': 'not-the-token' },
+        },
+        { name: 'нет Origin', headers: { Host: host, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf } },
+        { name: 'Origin null', headers: { Host: host, Origin: 'null', 'Content-Type': 'application/json', 'X-CSRF-Token': csrf } },
+        {
+          name: 'чужой порт',
+          headers: { Host: host, Origin: `http://${BIND_HOST}:9`, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        },
+        {
+          name: 'чужой Host',
+          headers: {
+            Host: `evil.example:${server.port}`,
+            Origin: `http://${host}`,
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf,
+          },
+        },
+      ]
+      for (const item of cases) {
+        const sent = await httpCall(server.port, 'POST', route.path, item.headers, route.body)
+        expect(sent.status, `${route.path} ${item.name}`).toBe(403)
+      }
+    }
+    expect(readFileSync(mrFile).equals(before)).toBe(true)
+    expect(existsSync(path.join(dir, 'data', 'outbox'))).toBe(false)
+  } finally {
+    await server?.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

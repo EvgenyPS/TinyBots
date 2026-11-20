@@ -86,9 +86,12 @@ function slugify(raw: string, fallback: string): string {
   return out.slice(0, 64)
 }
 
-/** Папка проекта может быть где угодно, в том числе вне лаунчера. Управляющие символы нельзя. */
+/** Папка проекта может быть где угодно, в том числе вне лаунчера. Управляющие символы и UNC нельзя. */
 function projectFolderOk(value: string): boolean {
   if (value.length === 0 || value.length > 300) {
+    return false
+  }
+  if (value.startsWith('//') || value.startsWith('\\\\')) {
     return false
   }
   for (const char of value) {
@@ -437,6 +440,9 @@ export function SetupWizard() {
   }
 
   async function checkSource() {
+    if (!info) {
+      return
+    }
     const pathValue = form.sourcePath.trim()
     if (!projectFolderOk(pathValue)) {
       setError('Укажите папку проекта')
@@ -445,7 +451,10 @@ export function SetupWizard() {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`/api/setup/source?path=${encodeURIComponent(pathValue)}`, { cache: 'no-store' })
+      const res = await fetch(`/api/setup/source?path=${encodeURIComponent(pathValue)}`, {
+        cache: 'no-store',
+        headers: { 'X-CSRF-Token': info.csrf },
+      })
       const body: unknown = await res.json()
       if (!isProbe(body)) {
         setError('Проверка пути не ответила')

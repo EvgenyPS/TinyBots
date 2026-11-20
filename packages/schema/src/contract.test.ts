@@ -219,6 +219,29 @@ test('папка проекта может лежать вне лаунчера'
   expect(configSchema.safeParse(config).success).toBe(true)
   source.files.path = 'proj\u0000ect'
   expect(configSchema.safeParse(config).success).toBe(false)
+  for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x']) {
+    source.files.path = folder
+    expect(configSchema.safeParse(config).success, folder).toBe(false)
+  }
+})
+
+test('Н37: список файлов мержа не включает .git', () => {
+  const base = {
+    schema_version: 1,
+    updated_at: '2026-11-19T10:00:00.000Z',
+    project: 'demo-game',
+    pr_url: 'https://example.invalid/demo/pull/1',
+    head_sha: '0123456789abcdef0123456789abcdef01234567',
+    tasks: ['task-01'],
+    checks: 'green' as const,
+    summary: 'Демо запрос',
+    state: 'awaiting_owner' as const,
+    history: [{ state: 'awaiting_owner' as const, at: '2026-11-19T10:00:00.000Z', by: 'lead1', why: 'старт' }],
+  }
+  expect(mergeRequestSchema.safeParse({ ...base, files: [{ path: 'note.txt' }] }).success).toBe(true)
+  for (const filePath of ['.git/config', '.git/hooks/pre-commit', 'src/.git/hooks/pre-commit', '.GIT/hooks/x']) {
+    expect(mergeRequestSchema.safeParse({ ...base, files: [{ path: filePath }] }).success, filePath).toBe(false)
+  }
 })
 
 test('по три битых примера на каждую схему', () => {
