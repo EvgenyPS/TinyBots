@@ -13,6 +13,16 @@ npm start
 
 Сервер слушает только `http://127.0.0.1:8787`. Если своего `config.yaml` нет, открывается мастер настройки (семь шагов) и по окончании записывает файл. Демо-набор `demo/sets/primary` остаётся по ссылке «Открыть демо» (`?demo=1`). Имена на экране вымышленные.
 
+Скриншоты сняты с этого демо, без настоящих имён и путей:
+
+![Пульт](docs/screenshots/dashboard.png)
+
+![Файлы](docs/screenshots/files.png)
+
+![Документация](docs/screenshots/docs.png)
+
+![Git](docs/screenshots/git.png)
+
 Другой набор: `TINYBOTS_CONFIG=demo/sets/beta/config.yaml npm start`.
 
 ## Конфиг
@@ -46,6 +56,9 @@ npm start
 | `/api/setup` | шаги мастера, есть ли файл, токен записи |
 | `/api/setup/source?path=` | папка проекта: свой git или фраза, что вкладка Git будет скрыта |
 | `POST /api/setup` | записать конфиг. Без `confirm_overwrite: true` существующий файл не меняется |
+| `/api/git?project=` | коммиты, diffstat, PR и CI. Токена в ответе нет. Нет git у проекта — вкладка скрыта |
+| `/api/files?project=` | дерево `source.files.path` и подписи рёбер из markdown |
+| `/api/docs?project=&path=` | текст markdown внутри той же папки |
 
 Если конфиг не разобрался, эти маршруты (кроме `/health` и `/api/bots`) отвечают `422`:
 
@@ -64,8 +77,9 @@ npm run e2e
 ```
 
 `npm test` — vitest (схемы, разбор конфига, атомарная запись, API).
-`npm run e2e` — Playwright 1.65 (нужен Ubuntu 26.04 в `ubuntu-latest`). Перед ним нужны `tsc -b` (его делает и `npm start`) и сборка страницы. В CI на Ubuntu браузер ставится `npx playwright install --with-deps chromium`, на Windows — `npx playwright install chromium`. Каталог — штатный кэш вне репозитория (`~/.cache/ms-playwright` или `%LOCALAPPDATA%\ms-playwright`), его же кладёт в кэш Actions. Внутрь дерева браузер не качаем: файл `.links` содержит абсолютный путь и попадает в стоп-лист.
-В CI то же самое на Node 20 и 24, Ubuntu и Windows.
+`npm run e2e` сам собирает страницу (`npm run build -w @tinybots/web`) и запускает Playwright 1.65 (нужен Ubuntu 26.04 в `ubuntu-latest`). Перед ним нужен `tsc -b` (его делает и `npm start`): e2e поднимает уже собранный сервер. В CI на Ubuntu браузер ставится `npx playwright install --with-deps chromium`, на Windows — `npx playwright install chromium`. Каталог — штатный кэш вне репозитория (`~/.cache/ms-playwright` или `%LOCALAPPDATA%\ms-playwright`), его же кладёт в кэш Actions. Внутрь дерева браузер не качаем: файл `.links` содержит абсолютный путь и попадает в стоп-лист.
+В CI то же самое на Node 20 и 24, Ubuntu и Windows. Lighthouse и кадры орбиты — отдельный job только на Ubuntu и Node 24.
+Ручная проверка вкладок после быстрого старта: [docs/v1-manual.md](docs/v1-manual.md).
 
 ## Безопасность
 

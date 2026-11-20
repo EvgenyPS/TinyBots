@@ -130,6 +130,13 @@ export const mergeRequestSchema = z.strictObject({
     requested_by: z.string().nullable(),
     approved_by: z.string().nullable(),
   }).optional(),
+  // Сбой отката или переноса, который нельзя повторять молча на каждом синке.
+  // Состояние при этом не прыгает: владелец видит why, пока не будет нового решения.
+  fault: z.strictObject({
+    action: z.enum(['merge', 'revert']),
+    at: isoSchema,
+    why: z.string().min(1),
+  }).optional(),
   // Режим files: какие файлы переносить из staging. Путь относительный, без .git, backups и staging.
   files: z.array(z.strictObject({
     path: z.string().refine(isMergeFilePath, 'только относительный путь вне .git, backups и staging'),

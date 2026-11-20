@@ -9,6 +9,9 @@
  */
 
 import { BriefPanel } from './brief-panel'
+import { DocsPanel } from './docs-panel'
+import { FilesPanel } from './files-panel'
+import { GitPanel } from './git-panel'
 import { MergeModal, type DecideInput, type MergeView } from './merge-modal'
 
 import { useEffect, useState } from 'react'
@@ -24,7 +27,7 @@ type Note = {
 }
 
 type Bot = { id: string; name: string; role: string; paused: boolean; lead: boolean }
-type Project = { id: string; title: string; letter: string; lead_id: string; lead_name: string }
+type Project = { id: string; title: string; letter: string; lead_id: string; lead_name: string; has_git?: boolean }
 type Chat = {
   id: string
   project_id: string
@@ -60,7 +63,7 @@ type View = {
 }
 type Failure = { ok: false; file: string; line: number; reason: string }
 type Load = { kind: 'loading' } | { kind: 'network' } | { kind: 'config'; failure: Failure } | { kind: 'ready'; data: View }
-type Panel = 'orbit' | 'tasks' | 'kanban' | 'rules'
+type Panel = 'orbit' | 'tasks' | 'kanban' | 'rules' | 'files' | 'git' | 'docs'
 
 const COLORS = ['#c4b5fd', '#93c5fd', '#86efac', '#fdba74', '#f9a8d4', '#fde68a', '#a5b4fc', '#99f6e4']
 const RAIL = ['#c4b5fd', '#93c5fd', '#fdba74', '#86efac']
@@ -230,8 +233,11 @@ export function Dashboard() {
     if (project && !chats.some((chat) => chat.id === chatId)) {
       setChatId(chats[0]?.id ?? null)
     }
+    if (project && !project.has_git && panel === 'git') {
+      setPanel('files')
+    }
     document.title = project ? `Пульт · ${project.title}` : 'Пульт'
-  }, [load, projectId, chatId])
+  }, [load, projectId, chatId, panel])
 
   if (load.kind === 'loading') {
     return <main className="setup" data-testid="loading">Загрузка пульта</main>
@@ -383,6 +389,11 @@ export function Dashboard() {
             <button type="button" className={panel === 'orbit' ? 'tab on' : 'tab'} data-testid="tab-orbit" onClick={() => setPanel('orbit')}>Команда</button>
             <button type="button" className={panel === 'tasks' ? 'tab on' : 'tab'} data-testid="tab-tasks" onClick={() => setPanel('tasks')}>Задания</button>
             <button type="button" className={panel === 'kanban' ? 'tab on' : 'tab'} data-testid="tab-kanban" onClick={() => setPanel('kanban')}>Канбан</button>
+            <button type="button" className={panel === 'files' ? 'tab on' : 'tab'} data-testid="tab-files" onClick={() => setPanel('files')}>Файлы</button>
+            {project?.has_git ? (
+              <button type="button" className={panel === 'git' ? 'tab on' : 'tab'} data-testid="tab-git" onClick={() => setPanel('git')}>Git</button>
+            ) : null}
+            <button type="button" className={panel === 'docs' ? 'tab on' : 'tab'} data-testid="tab-docs" onClick={() => setPanel('docs')}>Документация</button>
             <button type="button" className={panel === 'rules' ? 'tab on' : 'tab'} data-testid="tab-rules" onClick={() => setPanel('rules')}>Правила</button>
           </nav>
           <div className="acts">
@@ -412,6 +423,9 @@ export function Dashboard() {
             <span data-testid="sync-label">{data.synced_label ? `данные на ${data.synced_label}` : 'данные на —'}</span>
             <button type="button" className="btn" data-testid="sync" onClick={() => void synchronize()}>Синхронизировать</button>
           </div>
+          {requests.filter((item) => item.error).map((item) => (
+            <p key={item.id} className="merge-error" data-testid="merge-fault" data-mr={item.id}>{item.id}: {item.error}</p>
+          ))}
         </header>
         <div className="stage-body">
           <main className="workspace">
@@ -518,6 +532,9 @@ export function Dashboard() {
                 })}
               </section>
             ) : null}
+            {!blank && panel === 'files' && project ? <FilesPanel projectId={project.id} /> : null}
+            {!blank && panel === 'git' && project?.has_git ? <GitPanel projectId={project.id} /> : null}
+            {!blank && panel === 'docs' && project ? <DocsPanel projectId={project.id} /> : null}
             {!blank && panel === 'rules' ? (
               <section className="card pad rules" data-testid="rules-panel">
                 <h2>Правила</h2>

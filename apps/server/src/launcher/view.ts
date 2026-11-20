@@ -33,6 +33,7 @@ export type LauncherProject = {
   lead_id: string
   lead_name: string
   merge_executor: string
+  has_git: boolean
 }
 
 export type LauncherChat = {
@@ -88,7 +89,15 @@ export type LauncherMerge = {
   updated_at: string
 }
 
+/** Текст ошибки, который уходит владельцу в /api/launcher. */
+export function ownerMergeError(mr: MergeRequest): string | null {
+  return mergeError(mr)
+}
+
 function mergeError(mr: MergeRequest): string | null {
+  if (mr.fault?.why) {
+    return mr.fault.why
+  }
   if (mr.state !== 'awaiting_owner') {
     return null
   }
@@ -262,6 +271,7 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
       lead_id: project.lead,
       lead_name: nameOf(names, project.lead),
       merge_executor: project.merge_executor,
+      has_git: Boolean(project.source.git?.repo),
     })),
     bots: config.bots.map((bot) => ({
       id: bot.id,

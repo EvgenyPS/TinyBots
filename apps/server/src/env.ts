@@ -6,6 +6,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { rememberSecret } from './redact.js'
 
 export function loadDotEnv(filePath: string): void {
   if (!existsSync(filePath)) {
@@ -35,5 +36,7 @@ export function loadDotEnv(filePath: string): void {
     if (process.env[key] === undefined) {
       process.env[key] = value
     }
+    // Значение уже в окружении или только что положили — в журнал его не пускаем.
+    rememberSecret(process.env[key])
   }
 }

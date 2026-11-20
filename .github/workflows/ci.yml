@@ -37,8 +37,8 @@ jobs:
         run: npx eslint .
       - name: vitest
         run: npx vitest run
-      - name: сборка страницы
-        run: npm run build -w @tinybots/web
+      - name: движение CSS
+        run: node scripts/check-motion.mjs
       - name: каталог браузеров Playwright
         id: pw-browsers
         shell: bash
@@ -61,7 +61,7 @@ jobs:
         if: runner.os != 'Linux'
         run: npx playwright install chromium
       - name: e2e
-        run: npx playwright test
+        run: npm run e2e
       - name: LICENSE и NOTICE
         run: node scripts/check-license.mjs
       - name: стоп-лист
@@ -70,3 +70,38 @@ jobs:
           FORBIDDEN_EXTRA: ${{ secrets.FORBIDDEN_EXTRA }}
       - name: gitleaks
         run: node scripts/run-gitleaks.mjs
+
+  perf:
+    name: lighthouse и fps (ubuntu, node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: tsc -b
+        run: npx tsc -b
+      - name: сборка страницы
+        run: npm run build -w @tinybots/web
+      - name: каталог браузеров Playwright
+        id: pw-browsers
+        shell: bash
+        run: echo "dir=${HOME}/.cache/ms-playwright" >> "$GITHUB_OUTPUT"
+      - name: кэш браузеров Playwright
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pw-browsers.outputs.dir }}
+          key: playwright-Linux-${{ hashFiles('package-lock.json') }}
+      - name: браузер Playwright
+        run: npx playwright install --with-deps chromium
+      - name: lighthouse
+        run: npm install --no-save lighthouse@12.8.2
+      - name: Lighthouse Performance
+        run: node scripts/perf-lighthouse.mjs
+      - name: fps орбиты
+        run: npx playwright test e2e/perf
+        env:
+          TINYBOTS_PERF: '1'

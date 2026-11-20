@@ -1,5 +1,5 @@
 # Контракт — модули, репо, стек, контракт файлов (к §2, §3.2, §1)
-Полная версия: ../ARCH.md. Стек, который уже в дереве: Node 20 LTS + TS strict, Hono, Vite+React, zod, yaml. simple-git — с вкладкой Git. chokidar и SSE, подмешивание секретов из `.env` в конфиг, мастер и блокировка одного писателя — позже, сейчас этого нет. Octokit — только если позже появится токен в `.env`.
+Полная версия: ../ARCH.md. Стек, который уже в дереве: Node 20 LTS + TS strict, Hono, Vite+React, zod, yaml. Git-вкладка читает GitHub через `fetch` и `GITHUB_TOKEN`, без Octokit. chokidar и SSE, подмешивание секретов из `.env` в конфиг и блокировка одного писателя — позже, сейчас этого нет.
 
 ## Структура репо (уточнение §3.2, npm workspaces)
 - `packages/schema/` — zod-схемы config/task/status/merge_request/outbox/sync_manifest; из них генерится `schema/*.json`. Один источник типов для server и web.
