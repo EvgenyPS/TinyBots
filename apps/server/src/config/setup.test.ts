@@ -173,7 +173,7 @@ test('UNC и device-путь не доходят до диска, safe.directory
   mkdirSync(path.join(root, 'proj'), { recursive: true })
   const source = readFileSync(fileURLToPath(new URL('./source-check.ts', import.meta.url)), 'utf8')
   expect(source.includes('safe.directory=')).toBe(false)
-  for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x']) {
+  for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x', '\\/evil', '/\\evil']) {
     const report = await inspectSource(root, 'proj/config.yaml', folder)
     expect(report, folder).toMatchObject({ ok: false, reason: 'путь к папке проекта' })
   }
@@ -499,7 +499,7 @@ test('HTTP: проверка папки требует свой Origin и ток
       { Host: host },
     )
     expect(uncBare.status).toBe(403)
-    for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x']) {
+    for (const folder of ['\\\\server\\share', '//server/share', '\\\\?\\C:\\Windows', '\\\\.\\pipe\\x', '\\/evil', '/\\evil']) {
       const sent = await call(
         server.port,
         'GET',

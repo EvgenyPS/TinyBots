@@ -91,7 +91,8 @@ function projectFolderOk(value: string): boolean {
   if (value.length === 0 || value.length > 300) {
     return false
   }
-  if (value.startsWith('//') || value.startsWith('\\\\')) {
+  // \/evil и /\evil — тот же UNC, что //evil. Слэши сравниваем после приведения.
+  if (value.replace(/\\/g, '/').startsWith('//')) {
     return false
   }
   for (const char of value) {

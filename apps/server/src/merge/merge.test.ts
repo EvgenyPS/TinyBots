@@ -315,20 +315,40 @@ test('C11: обрыв files-мержа возвращает исходные sha
   expect(await sha256Of(fileA)).toBe(beforeA)
   expect(await sha256Of(fileB)).toBe(beforeB)
   writeFileSync(path.join(project, 'staging', 'b.txt'), 'б-после\n')
+  const fresh = path.join(project, 'fresh.txt')
+  writeFileSync(path.join(project, 'staging', 'fresh.txt'), 'новый\n')
   await expect(acceptProjectFiles({
     projectDir: project,
     mrId: 'mr-cycle',
-    files: ['a.txt', 'b.txt'],
+    // fresh.txt стоит до индекса сбоя: обрыв обязан удалить уже добавленный файл.
+    files: ['fresh.txt', 'a.txt', 'b.txt'],
     afterCopy: (index) => {
-      if (index === 0) {
+      if (index === 1) {
         throw new Error('обрыв')
       }
     },
   })).rejects.toThrow('обрыв')
+  expect(existsSync(fresh)).toBe(false)
   expect(await sha256Of(fileA)).toBe(beforeA)
   expect(await sha256Of(fileB)).toBe(beforeB)
   expect(readFileSync(fileA, 'utf8')).toBe('а-до\n')
   expect(readFileSync(fileB, 'utf8')).toBe('б-до\n')
+})
+
+test('Н44: запрос не затирает backups другого id', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  const kept = path.join(project, 'backups', 'mr-other', 'note.txt')
+  mkdirSync(path.dirname(kept), { recursive: true })
+  writeFileSync(kept, 'снимок\n')
+  mkdirSync(path.join(project, 'staging', 'backups', 'mr-other'), { recursive: true })
+  writeFileSync(path.join(project, 'staging', 'backups', 'mr-other', 'note.txt'), 'чужое\n')
+  await expect(acceptProjectFiles({
+    projectDir: project,
+    mrId: 'mr-cycle',
+    files: ['backups/mr-other/note.txt'],
+  })).rejects.toThrow()
+  expect(readFileSync(kept, 'utf8')).toBe('снимок\n')
 })
 
 test('C12: решение в outbox не меняет статус, доставка меняет', async () => {

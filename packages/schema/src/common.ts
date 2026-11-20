@@ -54,10 +54,22 @@ function hasControlChar(value: string): boolean {
 /**
  * UNC и device-путь Windows. До диска и git такое не доходит:
  * \\server\share и //server открывают сеть, \\?\ и \\.\ — устройство.
+ * Слэши сначала приводим к одному виду: \/evil и /\evil — тот же UNC.
  * Обычный /var или C:/work сюда не попадает: у них один слеш в начале.
  */
 function isUncOrDevicePath(value: string): boolean {
-  return value.startsWith('//') || value.startsWith('\\\\')
+  const slashes = value.replace(/\\/g, '/')
+  return slashes.startsWith('//')
+}
+
+/** Имена устройств Windows. С расширением (CON.txt) это всё ещё устройство. */
+const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/
+
+function isReservedDeviceName(segment: string): boolean {
+  const lower = segment.toLowerCase()
+  const dot = lower.indexOf('.')
+  const stem = dot === -1 ? lower : lower.slice(0, dot)
+  return stem.length > 0 && RESERVED_DEVICE.test(stem)
 }
 
 export function isProjectFolderPath(value: string): boolean {
@@ -74,13 +86,27 @@ export function isProjectFolderPath(value: string): boolean {
  * Файл запроса в режиме files. Относительный путь внутри папки проекта.
  * Сегмент .git (в любом регистре), в том числе .git/hooks, не переносим:
  * иначе мерж записал бы хуки репозитория.
+ * backups/ и staging/ — служебные каталоги снимка, их запрос не затирает.
+ * «.», пустой сегмент, NUL и имена устройств Windows тоже отказ.
  */
 export function isMergeFilePath(value: string): boolean {
-  if (!isContainedPath(value)) {
+  if (hasControlChar(value) || !isContainedPath(value)) {
     return false
   }
-  const segments = value.split('/').filter((part) => part.length > 0 && part !== '.')
-  return !segments.some((part) => part.toLowerCase() === '.git')
+  const segments = value.split('/')
+  if (segments.some((part) => part.length === 0 || part === '.')) {
+    return false
+  }
+  for (const segment of segments) {
+    const lower = segment.toLowerCase()
+    if (lower === '.git' || lower === 'backups' || lower === 'staging') {
+      return false
+    }
+    if (isReservedDeviceName(segment)) {
+      return false
+    }
+  }
+  return true
 }
 
 /** Путь внутри конфига: относительный, без выхода наверх и без диска. Чужие абсолютные пути здесь не живут. */
@@ -95,9 +121,6 @@ export function isContainedPath(value: string): boolean {
 }
 
 export const containedPathSchema = z.string().refine(isContainedPath, 'только относительный путь')
-
-/** Имена устройств Windows. С расширением (CON.txt) это всё ещё устройство. */
-const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/
 
 /**
  * data_dir — каталог записок, не служебный файл репозитория и не устройство Windows.
@@ -127,9 +150,7 @@ export function isSafeDataDir(value: string): boolean {
     if (BLOCKED_DATA_DIR.has(lower)) {
       return false
     }
-    const dot = lower.indexOf('.')
-    const stem = dot === -1 ? lower : lower.slice(0, dot)
-    if (stem.length > 0 && RESERVED_DEVICE.test(stem)) {
+    if (isReservedDeviceName(cleaned)) {
       return false
     }
   }

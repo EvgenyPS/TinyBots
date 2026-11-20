@@ -31,9 +31,29 @@ function staysIn(rootReal: string, candidate: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }
 
+/**
+ * staging/<файл> и backups/<id>/<файл> собираем сами.
+ * В списке запроса эти корни запрещены, здесь они служебные.
+ * Хвост всё равно проходит isMergeFilePath: чужой id и .git не пролезают.
+ */
+function isServicePath(rel: string): boolean {
+  const staging = /^staging\/(.+)$/.exec(rel)
+  if (staging?.[1]) {
+    return isMergeFilePath(staging[1])
+  }
+  if (/^backups\/[a-z0-9][a-z0-9-]{0,63}\.manifest\.json$/.test(rel)) {
+    return true
+  }
+  const backup = /^backups\/[a-z0-9][a-z0-9-]{0,63}\/(.+)$/.exec(rel)
+  if (backup?.[1]) {
+    return isMergeFilePath(backup[1])
+  }
+  return false
+}
+
 /** Ближайший существующий предок по realpath. Симлинк на этом пути — null, не цель записи. */
-async function locate(rootReal: string, rel: string): Promise<string | null> {
-  if (!isMergeFilePath(rel)) {
+async function locate(rootReal: string, rel: string, service = false): Promise<string | null> {
+  if (service ? !isServicePath(rel) : !isMergeFilePath(rel)) {
     return null
   }
   const parts = rel.split('/')
@@ -83,7 +103,7 @@ type Plan = {
 }
 
 async function readCreated(rootReal: string, mrId: string): Promise<Set<string>> {
-  const file = await locate(rootReal, `backups/${mrId}.manifest.json`)
+  const file = await locate(rootReal, `backups/${mrId}.manifest.json`, true)
   if (!file) {
     throw new Error('путь файла')
   }
@@ -137,8 +157,8 @@ export async function acceptProjectFiles(input: {
   const plans: Plan[] = []
   for (const rel of input.files) {
     const live = await locate(rootReal, rel)
-    const staging = await locate(rootReal, `staging/${rel}`)
-    const backup = await locate(rootReal, `backups/${input.mrId}/${rel}`)
+    const staging = await locate(rootReal, `staging/${rel}`, true)
+    const backup = await locate(rootReal, `backups/${input.mrId}/${rel}`, true)
     if (!live || !staging || !backup) {
       throw new Error('путь файла')
     }
@@ -165,7 +185,7 @@ export async function acceptProjectFiles(input: {
     }
     plans.push({ rel, live, staging, backup, created })
   }
-  const manifest = await locate(rootReal, `backups/${input.mrId}.manifest.json`)
+  const manifest = await locate(rootReal, `backups/${input.mrId}.manifest.json`, true)
   const backupDir = path.join(rootReal, 'backups', input.mrId)
   if (!manifest || !staysIn(rootReal, backupDir)) {
     throw new Error('путь файла')
@@ -236,7 +256,7 @@ export async function restoreProjectFiles(input: {
       plans.push({ rel, live, backup: null, created: true })
       continue
     }
-    const backup = await locate(rootReal, `backups/${input.mrId}/${rel}`)
+    const backup = await locate(rootReal, `backups/${input.mrId}/${rel}`, true)
     if (!backup) {
       throw new Error('путь файла')
     }
