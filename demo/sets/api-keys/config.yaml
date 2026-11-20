@@ -1,0 +1,50 @@
+# Свои боты на ключе. Часы в тестах — 2026-11-19T10:00:00Z.
+# base_url в этом файле официальный. e2e подменяет его на локальный мок и в сеть не ходит.
+schema_version: 1
+owner:
+  name: "Ника"
+  confirms_merge: true
+data_dir: "data"
+delivery: clipboard
+timezone: "Europe/Moscow"
+bots:
+  - id: nora
+    name: "Нора"
+    role: "справка"
+    instructions: "Отвечай по карточке задачи. Чужие чаты не пересказывай."
+    provider: deepseek
+    model: deepseek-chat
+    base_url: "https://api.deepseek.com"
+    api_key_env: DEEPSEEK_API_KEY
+  - id: bitk
+    name: "Бит"
+    role: "код"
+    executor_for_merge: true
+    grok_id: "demo-bit"
+projects:
+  - id: demo-keys
+    title: "Demo Keys"
+    lead: nora
+    owner: owner
+    merge_executor: bitk
+    source:
+      files:
+        path: "demo-project"
+    chats:
+      - id: build
+        title: "Сборка"
+        lead: nora
+        members: [nora, bitk]
+        rules:
+          do: "код и проверка"
+          dont: "чужие чаты"
+        context: []
+        economy:
+          wake: mentioned_only
+          reply_limit: short
+economy:
+  defaults:
+    wake: mentioned_only
+    reply_limit: short
+    max_wakes_per_task: 3
+  stale_after_hours: 6

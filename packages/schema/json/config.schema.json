@@ -37,40 +37,101 @@
     "bots": {
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "avatar": {
+                "type": "string"
+              },
+              "executor_for_merge": {
+                "type": "boolean"
+              },
+              "paused": {
+                "type": "boolean"
+              },
+              "instructions": {
+                "type": "string",
+                "minLength": 1
+              },
+              "provider": {
+                "type": "string",
+                "minLength": 1
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "base_url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "api_key_env": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*_API_KEY$"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role",
+              "instructions",
+              "provider",
+              "model",
+              "base_url",
+              "api_key_env"
+            ],
+            "additionalProperties": false
           },
-          "name": {
-            "type": "string",
-            "minLength": 1
-          },
-          "role": {
-            "type": "string",
-            "minLength": 1
-          },
-          "avatar": {
-            "type": "string"
-          },
-          "grok_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "executor_for_merge": {
-            "type": "boolean"
-          },
-          "paused": {
-            "type": "boolean"
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "avatar": {
+                "type": "string"
+              },
+              "executor_for_merge": {
+                "type": "boolean"
+              },
+              "paused": {
+                "type": "boolean"
+              },
+              "grok_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "id",
-          "name",
-          "role"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "projects": {

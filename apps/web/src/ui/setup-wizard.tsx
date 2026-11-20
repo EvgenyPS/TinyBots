@@ -599,6 +599,7 @@ export function SetupWizard() {
                   ) : null}
                 </div>
               ))}
+              <p className="sub">Свой бот на ключе задаётся в config.yaml: инструкции, провайдер, модель, base_url и имя переменной. Значение ключа остаётся в .env.</p>
               {form.bots.length < 8 ? (
                 <button type="button" className="btn" onClick={() => setForm((prev) => ({ ...prev, bots: [...prev.bots, emptyBot()] }))}>
                   Ещё бот

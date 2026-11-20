@@ -1,0 +1,16 @@
+schema_version: 1
+updated_at: "2026-11-19T09:15:00Z"
+id: task-01
+project: demo-keys
+chat: build
+assignee: nora
+goal: "Собрать справку"
+inputs:
+  - kind: path
+    value: "src/app.txt"
+output: "короткая записка"
+done_when: "записка на месте"
+out_of_scope: "чужие чаты и файлы"
+reply_limit: short
+due: "2026-11-20"
+status: working

@@ -39,7 +39,8 @@ npm start
 ## API
 
 Чтение — `GET`. Чужой `Host`, `Origin` или порт (не тот, на котором слушает процесс) получает 403.
-Единственная запись — `POST /api/setup`: тот же разбор порта, обязательный `Origin`, заголовок `X-CSRF-Token` с `GET /api/setup`, тело проходит схему до записи на диск. Любой другой не-`GET` отвечает 405.
+`Sec-Fetch-Site: same-site` и `cross-site` на `/api` тоже 403, до сети. Проходят `same-origin`, `none` и запрос без этого заголовка.
+Запись — `POST` с тем же разбором порта, непустым `Origin` и `X-CSRF-Token`: `/api/setup`, `/api/merge/decide`, `/api/sync/apply`, `/api/chat`, `/api/brief/send`. Другой не-`GET` отвечает 405.
 
 | Маршрут | Что отдаёт |
 |---|---|
@@ -52,11 +53,14 @@ npm start
 | `/api/notes` | записки `status/<bot_id>.json` |
 | `/api/tasks` | задачи `tasks/*.yaml` |
 | `/api/sync` | время последней синхронизации: самый поздний `updated_at` среди `sync/*.json`, не крайний файл по имени |
-| `/api/brief?project&chat&task` | бриф главному. 409 без текста, если главный на паузе или не задан |
+| `/api/brief?project&chat&task` | бриф главному. 409 без текста, если главный на паузе или не задан. Для своего бота отправка — `POST /api/brief/send` |
+| `POST /api/brief/send` | бриф своему боту по API. Ответ — текст. Записка не двигает задачу |
+| `/api/chat?bot=` | история чата своего бота, не больше 100 сообщений |
+| `POST /api/chat` | реплика своему боту. Ключ остаётся в `.env` |
 | `/api/setup` | шаги мастера, есть ли файл, токен записи |
 | `/api/setup/source?path=` | папка проекта: свой git или фраза, что вкладка Git будет скрыта |
 | `POST /api/setup` | записать конфиг. Без `confirm_overwrite: true` существующий файл не меняется |
-| `/api/git?project=` | коммиты, diffstat, PR и CI. Токена в ответе нет. Нет git у проекта — вкладка скрыта |
+| `/api/git?project=` | коммиты, diffstat, PR и CI. Токена в ответе нет. Нет git у проекта — вкладка скрыта. Классический токен после проверки прав открывает вкладку для публичных репозиториев; fine-grained без нужных полей вкладку не стартует |
 | `/api/files?project=` | дерево `source.files.path` и подписи рёбер из markdown |
 | `/api/docs?project=&path=` | текст markdown внутри той же папки |
 
@@ -80,6 +84,14 @@ npm run e2e
 `npm run e2e` сам собирает страницу (`npm run build -w @tinybots/web`) и запускает Playwright 1.65 (нужен Ubuntu 26.04 в `ubuntu-latest`). Перед ним нужен `tsc -b` (его делает и `npm start`): e2e поднимает уже собранный сервер. В CI на Ubuntu браузер ставится `npx playwright install --with-deps chromium`, на Windows — `npx playwright install chromium`. Каталог — штатный кэш вне репозитория (`~/.cache/ms-playwright` или `%LOCALAPPDATA%\ms-playwright`), его же кладёт в кэш Actions. Внутрь дерева браузер не качаем: файл `.links` содержит абсолютный путь и попадает в стоп-лист.
 В CI то же самое на Node 20 и 24, Ubuntu и Windows. Lighthouse и кадры орбиты — отдельный job только на Ubuntu и Node 24.
 Ручная проверка вкладок после быстрого старта: [docs/v1-manual.md](docs/v1-manual.md).
+
+## Свои боты
+
+У бота Grok по-прежнему необязательный `grok_id`, буфер и ссылка `grokbot://`. Полей модели у него нет.
+Свой бот задаётся в `config.yaml`: имя, роль, инструкции, провайдер, модель, `base_url`, `api_key_env`. Значение ключа — только в `.env`, имя переменной по шаблону `*_API_KEY`.
+Пресет DeepSeek подставляет `https://api.deepseek.com`, Qwen — `https://dashscope.aliyuncs.com/compatible-mode/v1`. Адрес можно заменить на другой проверенный OpenAI-совместимый `base_url`.
+Чат такого бота живёт в пульте. Если бриф адресован ему, текст уходит по API сам. Ответ, который проходит схему записки, пишется в `status/<bot_id>.json` и сам не переводит задачу в `done`.
+`rules.base` выключить нельзя. Пробуждений на задачу не больше `max_wakes_per_task`. Расход токенов берётся из `usage` ответа и лежит отдельно от недельной оценки.
 
 ## Безопасность
 

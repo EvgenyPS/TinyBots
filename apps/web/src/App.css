@@ -434,6 +434,11 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
 .commits { list-style: none; padding: 0; }
 .commits li { display: flex; gap: 8px; align-items: baseline; margin: 6px 0; }
 .sha { font-family: ui-monospace, monospace; color: #c4b5fd; }
+.api-chat { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.api-log { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.api-line { margin: 0; white-space: pre-wrap; }
+.api-form { display: flex; gap: 8px; }
+.api-form input { flex: 1; min-width: 0; }
 
 @media (prefers-reduced-motion: no-preference) {
   .merge-dialog { transform: translateY(0); transition: transform var(--dur), opacity var(--dur); }

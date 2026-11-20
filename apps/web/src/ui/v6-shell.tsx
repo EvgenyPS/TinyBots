@@ -8,6 +8,7 @@
  * Записка старше порога уже помечена сервером: здесь только серый цвет и слово «устарело».
  */
 
+import { ApiChat } from './api-chat'
 import { BriefPanel } from './brief-panel'
 import { DocsPanel } from './docs-panel'
 import { FilesPanel } from './files-panel'
@@ -26,7 +27,17 @@ type Note = {
   state: string | null
 }
 
-type Bot = { id: string; name: string; role: string; paused: boolean; lead: boolean }
+type Bot = {
+  id: string
+  name: string
+  role: string
+  paused: boolean
+  lead: boolean
+  transport?: 'grok' | 'api'
+  provider?: string | null
+  model?: string | null
+  usage_label?: string | null
+}
 type Project = { id: string; title: string; letter: string; lead_id: string; lead_name: string; has_git?: boolean }
 type Chat = {
   id: string
@@ -363,7 +374,7 @@ export function Dashboard() {
           <div className="k">Проект</div>
           <h1 data-testid="project-title">{project ? project.title : 'Нет проекта'}</h1>
           <p className="sub" data-testid="owner-name">владелец {data.owner.name}</p>
-          {project ? <p className="sub">главный {project.lead_name}</p> : null}
+          {project ? <p className="sub" data-testid="project-lead">главный {project.lead_name}</p> : null}
         </div>
         <div className="list">
           <div className="k">Чаты проекта</div>
@@ -478,6 +489,9 @@ export function Dashboard() {
                     </div>
                     <h4>Записка</h4>
                     <NoteBlock note={noteOf(data, selected.id)} testId="card-note" />
+                    {selected.transport === 'api' ? (
+                      <p className="sub" data-testid="card-usage">{selected.usage_label ?? 'нет данных'}</p>
+                    ) : null}
                     {noteOf(data, selected.id)?.question_to_owner ? (
                       <p className="question">{noteOf(data, selected.id)?.question_to_owner}</p>
                     ) : null}
@@ -565,7 +579,21 @@ export function Dashboard() {
                     projectId={project.id}
                     chatId={chat.id}
                     delivery={data.delivery}
+                    channel={data.bots.find((bot) => bot.id === chat.lead_id)?.transport === 'api' ? 'api' : 'grok'}
+                    csrf={csrf}
+                    onDone={() => setTick((n) => n + 1)}
                     tasks={tasks.filter((task) => task.chat_id === chat.id).map((task) => ({ id: task.id, goal: task.goal }))}
+                  />
+                ) : null}
+                {project && data.bots.find((bot) => bot.id === chat.lead_id)?.transport === 'api' ? (
+                  <ApiChat
+                    key={`chat-${chat.lead_id}`}
+                    botId={chat.lead_id}
+                    botName={chat.lead_name}
+                    csrf={csrf}
+                    projectId={project.id}
+                    chatId={chat.id}
+                    onDone={() => setTick((n) => n + 1)}
                   />
                 ) : null}
                 <h3>Участники</h3>

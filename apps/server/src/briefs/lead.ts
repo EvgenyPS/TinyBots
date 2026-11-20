@@ -11,6 +11,8 @@ export type LeadBot = {
   name: string
   paused: boolean
   grok_id?: string | null
+  /** Нет поля — бот Grok, как в конфигах до своих ключей. */
+  transport?: 'grok' | 'api'
 }
 
 export type ResolvedLead =

@@ -146,6 +146,28 @@
 
 ---
 
+## H. Свои боты на ключах
+
+Бот Grok не меняется. Ключ своего бота живёт в `.env`. Вызовы в CI идут только на локальный мок.
+
+| ID | Критерий | Как проверяем |
+|---|---|---|
+| H1 | Создание: имя, роль, инструкции, провайдер, модель, `base_url`. Бот в рейле, орбите и `/api/roster`. В конфиге только `api_key_env` по шаблону | `packages/schema/src/bots.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H2 | Поля модели у ботов Grok не появляются. Буфер и `grokbot://` без регрессии | `apps/server/src/launcher/api.test.ts`, `e2e/b5-brief.spec.ts` |
+| H3 | Смена провайдера или модели действует со следующего сообщения и брифа | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H4 | Ключ только в `.env`. Имя вне шаблона отвергается. Нет ключа в конфиге, `data_dir`, ответах, логах и git. Промпты и ответы не в журнале | `packages/schema/src/bots.test.ts`, `apps/server/src/llm/client.test.ts`, `apps/server/src/git/github.test.ts`, gitleaks |
+| H5 | Только локальный мок OpenAI-совместимого API | `e2e/h-api-bots.spec.ts`, `apps/server/src/llm/client.test.ts` |
+| H6 | SSRF: таблица URL, `redirect: 'manual'`, проверка адресов после DNS | `packages/schema/src/base-url.test.ts`, `apps/server/src/llm/client.test.ts` |
+| H7 | 401 без повтора, 429 не больше трёх повторов, таймаут 60 с, тело больше 1 МиБ. Процесс жив, ключ не светится, `stream: false` | `apps/server/src/llm/client.test.ts` |
+| H8 | Участник команды: `lead`, `assignee`, выбор чатов мержа | `e2e/h-api-bots.spec.ts`, `apps/server/src/llm/flow.test.ts` |
+| H9 | Бриф API-боту уходит по API. В контексте нет чужих чатов и тел файлов. Ответ в UI только текст | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H10 | Ответ в `status/<bot_id>.json` по схеме. Мусор не портит файл. Записка не ставит `done`, не запускает мерж и не меняет lead/assignee | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H11 | Чат в лаунчере, история в `data_dir`, не больше 100 сообщений, ключа в сообщениях нет | `apps/server/src/llm/store.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H12 | `reply_limit`, `max_wakes_per_task`, пауза, `rules.base` не выключается. Счётчик на диске, без гонки | `apps/server/src/llm/flow.test.ts`, `apps/server/src/llm/store.test.ts` |
+| H13 | Расход по `usage` и имени переменной. Нет `usage` — «нет данных» | `apps/server/src/llm/store.test.ts`, `apps/server/src/llm/flow.test.ts` |
+| H14 | Новые POST в записи с CSRF и Origin. `same-site` и `cross-site` — 403, мок молчит. `same-origin`, `none` и без заголовка — 200 | `apps/server/src/files/files.test.ts`, `apps/server/src/llm/flow.test.ts` |
+| H15 | Документы из списка, гигиена, `check-forbidden`, gitleaks. Остаточный риск TOCTOU — `docs/ARCH.md` | ревью документов, CI |
+
 ## Вопросы к владельцу (для Ава в LAUNCHER_PLAN.md)
 1. **F9:** какую цель экономии фиксируем — минус 30% пробуждений на задачу или другую?
 2. **E1:** порог визуального отличия от v6 ставим 2% или строже?

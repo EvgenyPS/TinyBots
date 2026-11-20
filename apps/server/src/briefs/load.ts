@@ -36,12 +36,13 @@ function notFound(message: string): BriefRefusal {
   return { ok: false, error: 'not_found', message, hint: 'Выберите задачу' }
 }
 
-function botsOf(configBots: ReadonlyArray<{ id: string; name: string; paused?: boolean; grok_id?: string }>): LeadBot[] {
+function botsOf(configBots: ReadonlyArray<{ id: string; name: string; paused?: boolean; grok_id?: string; api_key_env?: string }>): LeadBot[] {
   return configBots.map((bot) => ({
     id: bot.id,
     name: bot.name,
     paused: bot.paused === true,
     grok_id: bot.grok_id ?? null,
+    transport: typeof bot.api_key_env === 'string' ? 'api' : 'grok',
   }))
 }
 

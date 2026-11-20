@@ -18,6 +18,7 @@ export type BriefReady = {
   lead_id: string
   lead_name: string
   via: 'chat' | 'project'
+  channel: 'grok' | 'api'
   href: string | null
   fallback: string | null
 }
@@ -46,7 +47,8 @@ export function composeBrief(input: {
     return { ok: false, error: lead.reason, message: refusal.message, hint: refusal.hint }
   }
   const text = buildBriefText(input.task, input.ignored)
-  const href = grokbotHref(lead.bot.grok_id)
+  const channel = lead.bot.transport === 'api' ? 'api' : 'grok'
+  const href = channel === 'api' ? null : grokbotHref(lead.bot.grok_id)
   return {
     ok: true,
     text,
@@ -55,8 +57,9 @@ export function composeBrief(input: {
     lead_id: lead.bot.id,
     lead_name: lead.bot.name,
     via: lead.via,
+    channel,
     href,
-    // Подсказка рядом со ссылкой и без неё: протокол мог не открыться.
-    fallback: manualChatHint(lead.bot.name),
+    // У бота Grok протокол мог не открыться. Своему боту ссылка grokbot не нужна.
+    fallback: channel === 'api' ? null : manualChatHint(lead.bot.name),
   }
 }
