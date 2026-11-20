@@ -265,6 +265,57 @@ test('C9: ошибка отката одного запроса не рвёт с
   expect(readFileSync(path.join(data, 'merge_requests', 'mr-bad.json')).equals(saved)).toBe(true)
 })
 
+test('Н45: успешный повтор отката снимает fault', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  const data = path.join(root, 'data')
+  mkdirSync(project, { recursive: true })
+  mkdirSync(path.join(data, 'merge_requests'), { recursive: true })
+  mkdirSync(path.join(data, 'outbox', 'decisions'), { recursive: true })
+  writeFileSync(path.join(project, 'note.txt'), 'до мержа\n')
+  const broken = request('merged', { id: 'mr-retry', mode: 'files', files: [{ path: 'note.txt' }] })
+  writeFileSync(path.join(data, 'merge_requests', 'mr-retry.json'), `${JSON.stringify(broken, null, 2)}\n`)
+  const decision = {
+    schema_version: 1,
+    updated_at: AT,
+    head_sha: SHA,
+    by: 'owner',
+    project: 'demo-game',
+  }
+  writeFileSync(path.join(data, 'outbox', 'decisions', 'mr-retry.json'), `${JSON.stringify({
+    ...decision,
+    action: 'revert',
+    at: AT,
+    pr_url: broken.pr_url,
+    mr_id: 'mr-retry',
+  }, null, 2)}\n`)
+  const config = configSchema.parse(baseConfig)
+  const first = await deliverOutbox({ dataDir: data, config, configDirectory: root, now: new Date(AT) })
+  expect(first.applied).toEqual([])
+  const failed = readMerges(data).find((item) => item.id === 'mr-retry')?.mr
+  expect(failed?.state).toBe('merged')
+  expect(failed?.fault?.why).toContain('нет снимка')
+  expect(ownerMergeError(failed!)).toContain('нет снимка')
+  mkdirSync(path.join(project, 'backups', 'mr-retry'), { recursive: true })
+  writeFileSync(path.join(project, 'backups', 'mr-retry', 'note.txt'), 'снимок\n')
+  const later = '2026-11-19T11:00:00.000Z'
+  writeFileSync(path.join(data, 'outbox', 'decisions', 'mr-retry-2.json'), `${JSON.stringify({
+    ...decision,
+    updated_at: later,
+    action: 'revert',
+    at: later,
+    pr_url: broken.pr_url,
+    mr_id: 'mr-retry',
+  }, null, 2)}\n`)
+  const second = await deliverOutbox({ dataDir: data, config, configDirectory: root, now: new Date(later) })
+  expect(second.applied).toEqual([{ id: 'mr-retry', state: 'reverted' }])
+  const stored = readMerges(data).find((item) => item.id === 'mr-retry')?.mr
+  expect(stored?.state).toBe('reverted')
+  expect(stored?.fault).toBeUndefined()
+  expect(ownerMergeError(stored!)).toBeNull()
+  expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('снимок\n')
+})
+
 test('симлинк не выносит файл и снимок за папку проекта', async () => {
   const root = scratch()
   const project = path.join(root, 'project')

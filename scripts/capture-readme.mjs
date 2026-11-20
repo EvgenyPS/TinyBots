@@ -16,7 +16,7 @@ const SHA = 'abc1234abc1234abc1234abc1234abc1234abc12'
 const mock = http.createServer((req, res) => {
   const url = req.url ?? ''
   if (url.startsWith('/user')) {
-    res.setHeader('X-OAuth-Scopes', 'repo:status')
+    res.setHeader('X-OAuth-Scopes', 'read:org')
     res.end(JSON.stringify({ login: 'demo-reader' }))
     return
   }

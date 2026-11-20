@@ -55,6 +55,16 @@ function ownerOf(mr: MergeRequest, projectOwner: string): string {
   return mr.owner && mr.owner.length > 0 ? mr.owner : projectOwner
 }
 
+/** Успешный переход снимает старый fault, иначе панель продолжает показывать прошлый сбой. */
+function clearFault(mr: MergeRequest): MergeRequest {
+  if (!mr.fault) {
+    return mr
+  }
+  const next: MergeRequest = { ...mr }
+  delete next.fault
+  return next
+}
+
 function decisionMatches(id: string, mr: MergeRequest, decision: OwnerDecision): boolean {
   if (decision.mr_id) {
     return decision.mr_id === id
@@ -245,16 +255,18 @@ async function applyOne(stored: StoredMerge, input: DeliverInput, decisions: rea
   }
   const owner = ownerOf(stored.mr, project.owner)
   const mr = stored.mr
+  // Тот же объект — перехода не было, fault не трогаем. Новый объект — переход прошёл.
+  const done = (next: MergeRequest): MergeRequest => (next === mr ? next : clearFault(next))
   if (mr.state === 'approved') {
     const approved = decisions.find((item) => decisionMatches(stored.id, mr, item) && item.action === 'approved')
     if (approved && approved.head_sha !== mr.head_sha) {
-      return applyTransition(mr, {
+      return done(applyTransition(mr, {
         to: 'awaiting_owner',
         by: project.lead,
         at: input.now.toISOString(),
         why: 'head_sha изменился',
         cause: 'head_sha_changed',
-      })
+      }))
     }
   }
   const act = latestAct(stored.id, mr, decisions, feedbacks)
@@ -265,7 +277,7 @@ async function applyOne(stored: StoredMerge, input: DeliverInput, decisions: rea
     if (mr.state !== 'awaiting_owner' || act.feedback.by !== owner || changesAlreadyApplied(mr, act.feedback)) {
       return null
     }
-    return withChanges(mr, act.feedback, project.lead)
+    return done(withChanges(mr, act.feedback, project.lead))
   }
   const decision = act.decision
   if (decision.by !== owner || decision.head_sha !== mr.head_sha) {
@@ -279,13 +291,13 @@ async function applyOne(stored: StoredMerge, input: DeliverInput, decisions: rea
     if (mr.checks === 'red' && decision.accept_risk !== true) {
       return null
     }
-    return runMerge(mr, stored.id, decision, project, input.configDirectory, decision.at)
+    return done(await runMerge(mr, stored.id, decision, project, input.configDirectory, decision.at))
   }
   if (decision.action === 'rejected' && mr.state === 'awaiting_owner') {
-    return applyTransition(mr, { to: 'rejected', by: owner, at: decision.at, why: 'решение владельца: отклонить' })
+    return done(applyTransition(mr, { to: 'rejected', by: owner, at: decision.at, why: 'решение владельца: отклонить' }))
   }
   if (decision.action === 'revert' && mr.state === 'merged') {
-    return runRevert(mr, stored.id, decision, project, input.configDirectory, decision.at)
+    return done(await runRevert(mr, stored.id, decision, project, input.configDirectory, decision.at))
   }
   return null
 }

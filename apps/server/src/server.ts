@@ -141,6 +141,11 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     if (!requestAllowed(host, origin, boundPort.current)) {
       return c.json({ error: 'forbidden_host' }, 403)
     }
+    // Чужая страница может дернуть GET без CORS и потратить лимит токена GitHub.
+    // Своя страница шлёт same-origin или не шлёт заголовок вовсе. Других таких GET нет.
+    if (pathname === '/api/git' && c.req.header('sec-fetch-site')?.trim().toLowerCase() === 'cross-site') {
+      return c.json({ error: 'forbidden_host' }, 403)
+    }
     await next()
   })
 

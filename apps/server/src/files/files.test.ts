@@ -52,6 +52,9 @@ test('G1 и G2: файлы не выходят из папки, чужой Origi
   mkdirSync(path.join(project, 'docs'), { recursive: true })
   mkdirSync(outside, { recursive: true })
   writeFileSync(path.join(project, 'docs', 'readme.md'), '# Демо\n\nтекст\n')
+  writeFileSync(path.join(project, '.env'), 'не-для-доков\n')
+  mkdirSync(path.join(project, 'src'), { recursive: true })
+  writeFileSync(path.join(project, 'src', 'app.txt'), 'не markdown\n')
   writeFileSync(path.join(outside, 'secret.txt'), secretText)
   symlinkSync(path.join(outside, 'secret.txt'), path.join(project, 'docs', 'leak.md'))
   symlinkSync(outside, path.join(project, 'out'))
@@ -114,6 +117,16 @@ test('G1 и G2: файлы не выходят из папки, чужой Origi
       expect(sent.status, item).toBe(404)
       expect(sent.text.includes(secretText), item).toBe(false)
     }
+    for (const plain of ['.env', 'src/app.txt']) {
+      const sent = await httpGet(
+        server.port,
+        `/api/docs?project=demo-kit&path=${encodeURIComponent(plain)}`,
+        { Host: host },
+      )
+      expect(sent.status, plain).toBe(404)
+      expect(sent.text.includes('не-для-доков'), plain).toBe(false)
+      expect(sent.text.includes('не markdown'), plain).toBe(false)
+    }
     const good = await httpGet(server.port, '/api/docs?project=demo-kit&path=docs/readme.md', { Host: host })
     expect(good.status).toBe(200)
     expect(good.text.includes('# Демо')).toBe(true)
@@ -131,6 +144,16 @@ test('G1 и G2: файлы не выходят из папки, чужой Origi
       Origin: `http://${BIND_HOST}:9`,
     })
     expect(evilPort.status).toBe(403)
+    const crossSite = await httpGet(server.port, '/api/git?project=demo-kit', {
+      Host: host,
+      'Sec-Fetch-Site': 'cross-site',
+    })
+    expect(crossSite.status).toBe(403)
+    const sameSite = await httpGet(server.port, '/api/git?project=demo-kit', {
+      Host: host,
+      'Sec-Fetch-Site': 'same-origin',
+    })
+    expect(sameSite.status).toBe(200)
   } finally {
     await server?.close()
     rmSync(dir, { recursive: true, force: true })

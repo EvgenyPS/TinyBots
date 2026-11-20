@@ -32,7 +32,8 @@ test('G3: scope с записью не стартует вкладку, чтен
   expect(judgeScopes('repo', {})).toBe('write')
   expect(judgeScopes('repo:status, public_repo', {})).toBe('write')
   expect(judgeScopes('write:packages', {})).toBe('write')
-  expect(judgeScopes('repo:status', {})).toBe('read')
+  expect(judgeScopes('repo:status', {})).toBe('write')
+  expect(judgeScopes('read:org', {})).toBe('read')
   expect(judgeScopes('', {})).toBe('read')
   expect(judgeScopes(null, {})).toBe('unknown')
   expect(judgeScopes(null, { permissions: { contents: 'write', metadata: 'read' } })).toBe('write')
@@ -45,7 +46,7 @@ test('D1 и G3: мок GitHub отдаёт коммиты, diffstat, PR и CI б
     const href = String(url)
     expect(href.includes(TOKEN)).toBe(false)
     if (href.endsWith('/user')) {
-      return response(200, { login: 'demo-reader' }, 'repo:status')
+      return response(200, { login: 'demo-reader' }, 'read:org')
     }
     if (href.includes('/commits?')) {
       return response(200, [{

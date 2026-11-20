@@ -8,8 +8,9 @@
 
 import { logSafe, rememberSecret } from '../redact.js'
 
-const READ_SCOPE = /^(repo:status|read:[a-z0-9_]+)$/
-const WRITE_SCOPE = /^(repo|public_repo|workflow|gist|delete_repo|project|codespace|user)$/
+// repo:status — это запись статусов коммита, не чтение. Пустой заголовок и read:* остаются чтением.
+const READ_SCOPE = /^read:[a-z0-9_]+$/
+const WRITE_SCOPE = /^(repo|repo:status|public_repo|workflow|gist|delete_repo|project|codespace|user)$/
 
 export type GitCommit = { sha: string; message: string; author: string; at: string }
 export type GitRow = { path: string; additions: number; deletions: number }

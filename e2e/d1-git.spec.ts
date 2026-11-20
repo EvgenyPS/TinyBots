@@ -78,7 +78,7 @@ function bundleHasToken(): boolean {
 }
 
 test('D1: коммиты, diffstat, PR и CI приходят без токена', async ({ page }) => {
-  const mock = await githubMock('repo:status')
+  const mock = await githubMock('read:org')
   const server = await boot('demo/sets/primary/config.yaml', undefined, {
     GITHUB_TOKEN: TOKEN,
     GITHUB_API_BASE: `http://127.0.0.1:${mock.port}`,
