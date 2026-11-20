@@ -123,16 +123,19 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
 
 .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .top {
-  height: 56px;
+  min-height: 56px;
+  height: auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 0 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: rgba(18, 16, 28, 0.55);
 }
-.tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
+.tabs { display: flex; gap: 2px; flex: 1 0 auto; flex-wrap: wrap; }
 .tab {
+  flex: 0 0 auto;
   height: 32px;
   padding: 0 10px;
   border: 0;
@@ -142,7 +145,8 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
   font-weight: 650;
 }
 .tab.on { background: #2a243c; color: var(--ink); }
-.acts { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.acts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.btn:disabled { opacity: 0.45; }
 .btn {
   height: 32px;
   padding: 0 12px;
@@ -174,8 +178,16 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
 }
 .pad { padding: 14px; }
 
-.orbit-wrap { position: relative; min-height: 560px; display: flex; flex-direction: column; }
-.orbit-box { position: relative; height: 520px; }
+.orbit-wrap {
+  position: relative;
+  min-height: 560px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.orbit-wrap.has-card { grid-template-columns: minmax(0, 1fr) 280px; }
+.orbit-head { grid-column: 1; grid-row: 1; }
+.orbit-box { position: relative; height: 520px; grid-column: 1; grid-row: 2; }
 .bot-node {
   position: absolute;
   z-index: 4;
@@ -215,14 +227,14 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
 .note.is-stale, .note.is-missing, .stale-tag { color: var(--stale); }
 .stale-tag { font-weight: 750; }
 
-/* Оверлей поверх орбиты. Absolute, поэтому размер и место орбиты не меняются. */
+/* Колонка справа от орбиты. Не absolute: иначе карточка накрывает правого бота. */
 .bot-card {
-  position: absolute;
-  top: 64px;
-  right: 12px;
-  z-index: 5;
-  width: 280px;
-  max-height: calc(100% - 76px);
+  position: relative;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  z-index: 1;
+  width: auto;
+  max-height: 640px;
   overflow: auto;
   padding: 14px;
 }
@@ -352,6 +364,47 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
 .warn-box { background: rgba(226, 182, 87, 0.15); border: 1px solid rgba(226, 182, 87, 0.45); color: var(--warn); }
 .ok-box { background: rgba(61, 204, 138, 0.12); border: 1px solid rgba(61, 204, 138, 0.4); }
 .bot-row { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.btn.ghost { background: transparent; }
+.toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #1a1430;
+  color: #fff;
+}
+.modal-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(12, 8, 24, 0.55);
+}
+.merge-dialog {
+  width: min(560px, calc(100% - 24px));
+  max-height: min(820px, calc(100% - 24px));
+  overflow: auto;
+  margin-bottom: 12px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(28, 22, 44, 0.96);
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+.merge-head, .merge-actions { display: flex; gap: 8px; align-items: flex-start; }
+.merge-actions { justify-content: flex-end; margin-top: 8px; }
+.merge-foot { position: sticky; bottom: 0; background: rgba(28, 22, 44, 0.96); padding-top: 8px; }
+.merge-error { color: #ffb4b4; }
+.merge-mark { font-weight: 750; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (prefers-reduced-motion: no-preference) {
+  .merge-dialog { transform: translateY(0); }
+}
 
 @media (max-width: 1279px) {
   .stage-body { grid-template-columns: 1fr; }

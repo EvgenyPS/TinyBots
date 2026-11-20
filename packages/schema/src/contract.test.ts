@@ -178,6 +178,49 @@ test('data_dir не указывает на git, package.json и устройс�
   }
 })
 
+test('data_dir режет управляющие символы, служебные каталоги и хвостовые точки', () => {
+  const config = copy(readData(path.join(repoRoot, 'config.example.yaml')))
+  const blocked = [
+    'data\u0000',
+    'notes/\u0007hidden',
+    'node_modules',
+    'Node_Modules',
+    'node_modules.',
+    'node_modules ',
+    'foo/node_modules/bar',
+    '.github',
+    '.GITHUB.',
+    'scripts',
+    ' scripts ',
+    'Scripts.',
+  ]
+  for (const dataDir of blocked) {
+    expect(configSchema.safeParse({ ...config, data_dir: dataDir }).success, dataDir).toBe(false)
+  }
+  // Хвост срезается: data. и data с пробелом остаются каталогом data, не служебным именем.
+  // notes... не сюда: в строке есть .., это выход наверх, его режет отдельное правило.
+  for (const dataDir of ['data.', 'data ', 'notes.', 'my-scripts', 'script', 'github']) {
+    expect(configSchema.safeParse({ ...config, data_dir: dataDir }).success, dataDir).toBe(true)
+  }
+})
+
+test('папка проекта может лежать вне лаунчера', () => {
+  const config = copy(readData(path.join(repoRoot, 'config.example.yaml')))
+  const projects = config.projects as Array<{ source: { files?: { path: string } } }>
+  const source = projects[0]?.source
+  if (!source?.files) {
+    throw new Error('в примере нет files.path')
+  }
+  source.files.path = '/var/demo-project'
+  expect(configSchema.safeParse(config).success).toBe(true)
+  source.files.path = 'C:/work/demo-project'
+  expect(configSchema.safeParse(config).success).toBe(true)
+  source.files.path = '../outside/demo-project'
+  expect(configSchema.safeParse(config).success).toBe(true)
+  source.files.path = 'proj\u0000ect'
+  expect(configSchema.safeParse(config).success).toBe(false)
+})
+
 test('по три битых примера на каждую схему', () => {
   const cases: Array<{ name: string; schema: ZodType; value: unknown }> = []
 

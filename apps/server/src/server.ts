@@ -3,13 +3,16 @@
  * НАЗНАЧЕНИЕ: HTTP пульта на 127.0.0.1.
  * ВХОД: config.yaml (или демо-набор) и сборка apps/web/dist, если она есть.
  * ВЫХОД: /health, /api/bots (список каркаса), API проектов, ботов, чатов, записок и страница.
- * Чужой Host, Origin или чужой порт — 403. Единственная запись — POST /api/setup:
+ * Чужой Host, Origin или чужой порт — 403. Запись — POST /api/setup и решения по мержу:
  * тот же requestAllowed, что и у чтения, плюс непустой Origin и токен.
- * Пустой Origin и строка null для записи не годятся: чтение их не отличает от «заголовка нет».
- * Параллельные POST этого маршрута идут по одному. Любой другой не-GET отвечает 405.
- * /setup не отдаётся во фрейме.
+ * Нет заголовка Origin или он пустой — чтение пускает (так открывают страницу), запись нет.
+ * Строка null — это не пустой заголовок. requestAllowed отклоняет её и на чтении, и на записи:
+ * непрозрачный origin не разбирается как http://127.0.0.1.
+ * Параллельные POST идут по одному. Любой другой не-GET отвечает 405.
+ * / и /setup не отдаются во фрейме.
  * Битый конфиг не роняет процесс: API отдаёт файл, строку и причину.
  * GET /api/brief собирает бриф. Текста в ответе нет, если главный на паузе или не задан.
+ * Решение по мержу пишется в outbox и не меняет статус, пока не вызван POST /api/sync/apply.
  */
 
 import { existsSync } from 'node:fs'
@@ -20,13 +23,14 @@ import { serve, type HttpBindings, type ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { Server } from 'node:http'
 import { BIND_HOST } from './bind.js'
-import { describeSetup, saveSetup, type SetupReply } from './config/setup.js'
+import { describeSetup, saveSetup } from './config/setup.js'
 import { inspectSource } from './config/source-check.js'
 import { newCsrfToken, tokensMatch } from './csrf.js'
 import { FALLBACK_HTML } from './fallback-html.js'
 import { briefStatus, loadBrief } from './briefs/load.js'
 import { requestAllowed } from './guard.js'
 import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
+import { postDecision, postSync } from './merge/http.js'
 import type { ConfigFailure } from './config/load.js'
 import { repoRoot } from './root.js'
 
@@ -54,8 +58,12 @@ function publish(result: LauncherView | ConfigFailure): { body: LauncherView | C
 
 const SETUP_BODY_LIMIT = 65_536
 
-function isSetupWrite(method: string, pathname: string): boolean {
-  return method === 'POST' && pathname === '/api/setup'
+function isWrite(method: string, pathname: string): boolean {
+  return method === 'POST' && (
+    pathname === '/api/setup'
+    || pathname === '/api/merge/decide'
+    || pathname === '/api/sync/apply'
+  )
 }
 
 function isSetupPath(pathname: string): boolean {
@@ -63,9 +71,10 @@ function isSetupPath(pathname: string): boolean {
 }
 
 /**
- * Чтение пускает запрос без Origin: так открывают страницу.
+ * Чтение пускает запрос без Origin и с пустым Origin: так открывают страницу.
  * Запись так нельзя: иначе порт Origin не с чем сверить.
- * «null» — непрозрачный origin, его браузер шлёт строкой из четырёх букв.
+ * Строка null — непрозрачный origin из четырёх букв. Её не пускает уже requestAllowed,
+ * потому что это не адрес http(s) на loopback. Здесь она тоже не считается «есть Origin».
  */
 function writeOriginPresent(origin: string | undefined): boolean {
   if (origin === undefined) {
@@ -75,8 +84,10 @@ function writeOriginPresent(origin: string | undefined): boolean {
   return trimmed.length > 0 && trimmed.toLowerCase() !== 'null'
 }
 
+type QueuedReply = { status: number; body: Record<string, unknown> }
+
 /** Очередь одного маршрута: второй POST ждёт, пока первый закончит запись. */
-function queueWrites(): (job: () => Promise<SetupReply>) => Promise<SetupReply> {
+function queueWrites(): <T extends QueuedReply>(job: () => Promise<T>) => Promise<T> {
   let chain: Promise<void> = Promise.resolve()
   return (job) => {
     const run = chain.then(job, job)
@@ -107,12 +118,12 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     const host = hostFromContext(c)
     const origin = c.req.header('origin')
     const pathname = new URL(c.req.url).pathname
-    if (isSetupPath(pathname)) {
+    if (pathname === '/' || isSetupPath(pathname)) {
       c.header('X-Frame-Options', 'DENY')
       c.header('Content-Security-Policy', "frame-ancestors 'none'")
     }
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
-      if (!isSetupWrite(c.req.method, pathname)) {
+      if (!isWrite(c.req.method, pathname)) {
         return c.json({ error: 'writes_not_ready' }, 405)
       }
       // Порт проверяет тот же requestAllowed, что и чтение. Без Origin запись не пускаем.
@@ -146,6 +157,9 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
 
   app.get('/api/launcher', (c) => {
     const sent = publish(launcher())
+    if (sent.status === 200 && sent.body.ok) {
+      return c.json({ ...sent.body, csrf }, sent.status)
+    }
     return c.json(sent.body, sent.status)
   })
 
@@ -235,6 +249,34 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
       return c.json({ error: 'json' }, 400)
     }
     const saved = await setupQueue(() => saveSetup(root, options?.configPath, payload))
+    return c.json(saved.body, saved.status)
+  })
+
+  app.post('/api/merge/decide', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    if (!tokensMatch(csrf, c.req.header('x-csrf-token'))) {
+      return c.json({ error: 'csrf' }, 403)
+    }
+    const raw = await c.req.text()
+    if (raw.length > SETUP_BODY_LIMIT) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    let payload: unknown
+    try {
+      payload = JSON.parse(raw) as unknown
+    } catch {
+      return c.json({ error: 'json' }, 400)
+    }
+    const saved = await setupQueue(() => postDecision(root, options, payload))
+    return c.json(saved.body, saved.status)
+  })
+
+  app.post('/api/sync/apply', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    if (!tokensMatch(csrf, c.req.header('x-csrf-token'))) {
+      return c.json({ error: 'csrf' }, 403)
+    }
+    const saved = await setupQueue(() => postSync(root, options))
     return c.json(saved.body, saved.status)
   })
 

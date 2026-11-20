@@ -15,8 +15,8 @@ import { BIND_HOST } from '../bind.js'
 import { tokensMatch } from '../csrf.js'
 import { repoRoot } from '../root.js'
 import { startServer, type RunningServer } from '../server.js'
-import { parseConfigText } from './load.js'
-import { saveSetup, SETUP_STEP_LIMIT, SETUP_STEPS, describeSetup } from './setup.js'
+import { parseConfigText, loadConfigAt } from './load.js'
+import { saveSetup, SETUP_STEP_LIMIT, SETUP_STEPS, describeSetup, placeNewFile } from './setup.js'
 import { resolveSetupTarget } from './setup-target.js'
 import { GIT_HIDDEN_WARNING, inspectSource, judgeSource } from './source-check.js'
 
@@ -145,14 +145,26 @@ test('проверка папки: нет .git, есть свой git, файл 
   expect(up.ok).toBe(false)
 })
 
-test('ссылка на папку вне корня не считается источником', async () => {
+test('ссылка на папку вне корня годится как источник и не подменяет запрошенный путь', async () => {
   const root = scratch()
   const outside = scratch()
   mkdirSync(path.join(root, 'proj'), { recursive: true })
   symlinkSync(outside, path.join(root, 'proj', 'link'))
   const report = await inspectSource(root, 'proj/config.yaml', 'link')
-  expect(report.ok).toBe(false)
+  expect(report).toMatchObject({ ok: true, path: 'link', git: false, warning: GIT_HIDDEN_WARNING })
   expect(JSON.stringify(report)).not.toContain(outside)
+})
+
+test('папка проекта вне лаунчера принимается', async () => {
+  const root = scratch()
+  mkdirSync(path.join(root, 'proj'), { recursive: true })
+  const outside = scratch()
+  writeFileSync(path.join(outside, 'note.txt'), 'x\n')
+  const absolute = await inspectSource(root, 'proj/config.yaml', outside)
+  expect(absolute).toMatchObject({ ok: true, git: false, warning: GIT_HIDDEN_WARNING })
+  const relative = path.relative(path.join(root, 'proj'), outside)
+  const escaped = await inspectSource(root, 'proj/config.yaml', relative)
+  expect(escaped).toMatchObject({ ok: true, git: false, warning: GIT_HIDDEN_WARNING })
 })
 
 test('нет config.yaml — мастер нужен, демо и пример не перезаписываются', () => {
@@ -243,10 +255,10 @@ test('демо-файл и ссылка наружу не становятся �
   expect(existsSync(path.join(outside, 'config.yaml'))).toBe(false)
 })
 
-test('data_dir не принимает git, package.json и имена устройств', async () => {
+test('data_dir не принимает git, package.json, служебные каталоги и имена устройств', async () => {
   const root = scratch()
   const rel = 'proj/config.yaml'
-  const blocked = ['.git', 'package.json', 'CON', 'nul.txt', 'data/.git', 'data/Package.JSON', 'notes/LPT1.yaml', 'COM1']
+  const blocked = ['.git', 'package.json', 'CON', 'nul.txt', 'data/.git', 'data/Package.JSON', 'notes/LPT1.yaml', 'COM1', 'node_modules', '.github', 'scripts', 'node_modules.', 'data\u0000']
   for (const dataDir of blocked) {
     const saved = await saveSetup(root, rel, {
       config: { ...sampleConfig('Demo Kit'), data_dir: dataDir },
@@ -254,6 +266,30 @@ test('data_dir не принимает git, package.json и имена устр�
     expect(saved.status, dataDir).toBe(422)
     expect(existsSync(path.join(root, 'proj', 'config.yaml')), dataDir).toBe(false)
   }
+})
+
+test('обрыв до публикации не оставляет пустой config.yaml, пустой файл открывает мастер', async () => {
+  const root = scratch()
+  const target = path.join(root, 'config.yaml')
+  await expect(placeNewFile(target, 'schema_version: 1\n', () => {
+    throw new Error('обрыв')
+  })).rejects.toThrow('обрыв')
+  expect(existsSync(target)).toBe(false)
+
+  writeFileSync(target, '\n')
+  const described = withoutConfigEnv(() => describeSetup(root, undefined, 'csrf-demo'))
+  expect(described.body.required).toBe(true)
+  expect(described.body.exists).toBe(false)
+  const loaded = loadConfigAt(root, 'config.yaml')
+  expect(loaded.ok).toBe(false)
+  if (!loaded.ok) {
+    expect(loaded.reason).toContain('мастер')
+  }
+  const saved = await withoutConfigEnv(() => saveSetup(root, undefined, { config: sampleConfig('Demo Kit') }))
+  expect(saved.status).toBe(200)
+  const text = readFileSync(target, 'utf8')
+  expect(text.trim().length).toBeGreaterThan(0)
+  expect(parseConfigText(text, 'config.yaml').ok).toBe(true)
 })
 
 test('токен записи сравнивается целиком', () => {
@@ -478,6 +514,9 @@ test('HTTP: /setup нельзя вложить во фрейм', async () => {
     const page = await call(server.port, 'GET', '/setup', { Host: host })
     expect(page.status).toBe(200)
     expectFrame(page.headers)
+    const rootPage = await call(server.port, 'GET', '/', { Host: host })
+    expect(rootPage.status).toBe(200)
+    expectFrame(rootPage.headers)
     const api = await call(server.port, 'GET', '/api/setup', { Host: host })
     expect(api.status).toBe(200)
     expectFrame(api.headers)

@@ -35,6 +35,29 @@ export const versionFields = {
   updated_at: isoSchema,
 }
 
+/**
+ * Папка проекта в мастере. Может лежать где угодно, в том числе вне папки лаунчера.
+ * data_dir сюда не относится: у него своё правило isSafeDataDir.
+ * Управляющие символы отвергаем, иначе путь нельзя ни показать, ни открыть.
+ */
+/** U+0000…U+001F. Регулярку не берём: линтер режет управляющие символы в литерале. */
+function hasControlChar(value: string): boolean {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0
+    if (code <= 0x1f) {
+      return true
+    }
+  }
+  return false
+}
+
+export function isProjectFolderPath(value: string): boolean {
+  if (value.length === 0 || value.length > 300) {
+    return false
+  }
+  return !hasControlChar(value)
+}
+
 /** Путь внутри конфига: относительный, без выхода наверх и без диска. Чужие абсолютные пути здесь не живут. */
 export function isContainedPath(value: string): boolean {
   if (value.length === 0 || value.includes('..') || value.includes('\\')) {
@@ -53,22 +76,30 @@ const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/
 
 /**
  * data_dir — каталог записок, не служебный файл репозитория и не устройство Windows.
- * Сегмент `.git` или `package.json` (в любом регистре) отклоняем: иначе мастер
- * положит данные поверх репозитория. CON, NUL, PRN, AUX, COM1–9, LPT1–9 — тоже,
- * включая `CON.txt` и хвостовые точки.
+ * Сегмент `.git`, `package.json`, `node_modules`, `.github` или `scripts`
+ * (в любом регистре) отклоняем: иначе мастер положит данные поверх репозитория.
+ * CON, NUL, PRN, AUX, COM1–9, LPT1–9 — тоже, включая `CON.txt`.
+ * Перед проверкой срезаем хвостовые точки и пробелы и ведущие пробелы,
+ * иначе `node_modules.` или ` scripts ` проскочили бы мимо списка.
+ * Управляющие символы (\u0000–\u001f) отвергаем целиком, до разбора сегментов.
  */
+const BLOCKED_DATA_DIR = new Set(['.git', 'package.json', 'node_modules', '.github', 'scripts'])
+
 export function isSafeDataDir(value: string): boolean {
+  if (hasControlChar(value)) {
+    return false
+  }
   if (!isContainedPath(value)) {
     return false
   }
   const segments = value.split('/').filter((part) => part.length > 0 && part !== '.')
   for (const segment of segments) {
-    const cleaned = segment.replace(/[. ]+$/u, '')
+    const cleaned = segment.replace(/[. ]+$/u, '').replace(/^ +/u, '')
     if (cleaned.length === 0) {
       return false
     }
     const lower = cleaned.toLowerCase()
-    if (lower === '.git' || lower === 'package.json') {
+    if (BLOCKED_DATA_DIR.has(lower)) {
       return false
     }
     const dot = lower.indexOf('.')

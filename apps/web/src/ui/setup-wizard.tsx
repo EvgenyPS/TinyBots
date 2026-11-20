@@ -86,7 +86,21 @@ function slugify(raw: string, fallback: string): string {
   return out.slice(0, 64)
 }
 
-/** То же правило, что containedPathSchema: относительный путь, без диска и без `..`. */
+/** Папка проекта может быть где угодно, в том числе вне лаунчера. Управляющие символы нельзя. */
+function projectFolderOk(value: string): boolean {
+  if (value.length === 0 || value.length > 300) {
+    return false
+  }
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0
+    if (code <= 0x1f) {
+      return false
+    }
+  }
+  return true
+}
+
+/** Куда писать сам config.yaml: только относительный путь внутри лаунчера. */
 function contained(value: string): boolean {
   if (value.length === 0 || value.includes('..') || value.includes('\\')) {
     return false
@@ -218,8 +232,8 @@ function validate(step: string, form: Form): string | null {
   }
   if (step === 'source') {
     const pathValue = form.sourcePath.trim()
-    if (!contained(pathValue)) {
-      return 'Путь относительный, без выхода наверх'
+    if (!projectFolderOk(pathValue)) {
+      return 'Укажите папку проекта'
     }
     if (!form.probe || form.probe.path !== pathValue) {
       return 'Сначала проверьте путь'
@@ -424,8 +438,8 @@ export function SetupWizard() {
 
   async function checkSource() {
     const pathValue = form.sourcePath.trim()
-    if (!contained(pathValue)) {
-      setError('Путь относительный, без выхода наверх')
+    if (!projectFolderOk(pathValue)) {
+      setError('Укажите папку проекта')
       return
     }
     setBusy(true)
@@ -674,7 +688,7 @@ export function SetupWizard() {
           {step.id === 'source' ? (
             <div>
               <label className="field">
-                <span>Папка с файлами, относительно конфига</span>
+                <span>Папка проекта — любая, в том числе вне лаунчера</span>
                 <input
                   data-testid="source-path"
                   value={form.sourcePath}

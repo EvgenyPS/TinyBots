@@ -3,12 +3,16 @@
  * НАЗНАЧЕНИЕ: описание мастера и запись config.yaml.
  * ВХОД: корень, явный путь конфига, разобранное тело POST.
  * ВЫХОД: шаги для экрана или файл на диске. Куда писать, решает сервер, не тело запроса.
- * Схема zod проходит до mkdir и rename. Без confirm_overwrite файл создаётся флагом wx:
- * второй параллельный POST видит, что цель уже есть, и получает 409.
+ * Схема zod проходит до mkdir и публикации файла.
+ * Новый файл пишется во временный и появляется целиком через link: пустого config.yaml
+ * на диске не остаётся, даже если процесс оборвался до публикации.
+ * Повтор без confirm_overwrite получает 409, если на диске уже лежит непустой файл.
+ * Пустой файл считаем незаписанным и заменяем.
  * Семи шагов хватает на проход: потолок критерия — десять.
  */
 
-import { mkdir, open, rm, type FileHandle } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { link, mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { configSchema } from '@tinybots/schema'
 import { stringify } from 'yaml'
@@ -17,7 +21,7 @@ import { z } from 'zod'
 import { writeAtomic } from '../store/atomic.js'
 import { staysInRoot } from './confine.js'
 import { parseConfigText } from './load.js'
-import { resolveSetupTarget } from './setup-target.js'
+import { isBlankFile, resolveSetupTarget } from './setup-target.js'
 
 export const SETUP_STEP_LIMIT = 10
 
@@ -108,39 +112,49 @@ export async function saveSetup(root: string, explicit: string | undefined, payl
   }
 
   const overwrite = envelope.data.confirm_overwrite === true
-  let claimed = false
+  const blank = isBlankFile(target.absolute)
   try {
     await mkdir(path.dirname(target.absolute), { recursive: true })
-    if (!overwrite) {
-      // wx — создание «только если файла ещё нет». Проверка exists до записи проигрывает гонку.
-      claimed = await claimNewFile(target.absolute)
-      if (!claimed) {
+    if (overwrite || blank) {
+      await writeAtomic(target.absolute, text)
+    } else {
+      const placed = await placeNewFile(target.absolute, text)
+      if (placed === 'exists') {
         return { status: 409, body: { ok: false, error: 'config_exists', file: target.target } }
       }
     }
-    await writeAtomic(target.absolute, text)
   } catch {
-    if (claimed) {
-      await rm(target.absolute, { force: true }).catch(() => undefined)
-    }
     // Текст исключения может содержать абсолютный путь. Наружу его не отдаём.
     return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'не удалось записать файл' } }
   }
   return { status: 200, body: { ok: true, file: target.target } }
 }
 
-/** true — этот вызов создал пустой файл. false — цель уже была. */
-async function claimNewFile(target: string): Promise<boolean> {
-  let handle: FileHandle | undefined
+/**
+ * Публикует новый файл целиком. Сначала текст во временном файле, потом link.
+ * link падает, если цель уже есть, и пустой config.yaml при этом не создаётся.
+ * afterTemp — крюк теста: бросить до link и убедиться, что цели нет.
+ */
+export async function placeNewFile(
+  target: string,
+  text: string,
+  afterTemp?: () => Promise<void> | void,
+): Promise<'created' | 'exists'> {
+  const dir = path.dirname(target)
+  const tmp = path.join(dir, `.${path.basename(target)}.${process.pid}.${randomBytes(4).toString('hex')}.part`)
   try {
-    handle = await open(target, 'wx')
-    return true
+    await writeAtomic(tmp, text)
+    if (afterTemp) {
+      await afterTemp()
+    }
+    await link(tmp, target)
+    return 'created'
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'EEXIST') {
-      return false
+      return 'exists'
     }
     throw error
   } finally {
-    await handle?.close()
+    await rm(tmp, { force: true }).catch(() => undefined)
   }
 }

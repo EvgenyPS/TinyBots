@@ -4,10 +4,11 @@
  * ВХОД: корень и явный путь (аргумент запуска или TINYBOTS_CONFIG).
  * ВЫХОД: относительная цель. Тело запроса цель не выбирает.
  * Нет своего файла — пишем config.yaml в корне и считаем, что мастер нужен.
+ * Пустой файл (обрыв записи) тоже мастер: разбирать там нечего.
  * demo/ и config.example.yaml не трогаем даже с подтверждением.
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { staysInRoot } from './confine.js'
 import { locateConfig } from './load.js'
@@ -32,6 +33,18 @@ function writeBlocked(display: string): boolean {
   return posix === 'demo' || posix.startsWith('demo/')
 }
 
+/** Пустой или из одних пробелов файл — это не конфиг, а след оборванной записи. */
+export function isBlankFile(absolute: string): boolean {
+  if (!existsSync(absolute)) {
+    return false
+  }
+  try {
+    return readFileSync(absolute, 'utf8').trim().length === 0
+  } catch {
+    return false
+  }
+}
+
 export function resolveSetupTarget(root: string, explicit?: string): SetupTarget {
   const fromCall = explicit?.trim() ?? ''
   const fromEnv = fromCall.length > 0 ? '' : (process.env.TINYBOTS_CONFIG?.trim() ?? '')
@@ -40,16 +53,17 @@ export function resolveSetupTarget(root: string, explicit?: string): SetupTarget
   if (chosen.length === 0) {
     const target = 'config.yaml'
     const absolute = path.resolve(root, target)
-    const exists = existsSync(absolute)
-    const outside = exists && !staysInRoot(root, absolute)
+    const onDisk = existsSync(absolute)
+    const blank = onDisk && isBlankFile(absolute)
+    const outside = onDisk && !staysInRoot(root, absolute)
     return {
       ok: true,
       target,
       absolute,
-      exists,
-      required: !exists,
+      exists: onDisk && !blank,
+      required: !onDisk || blank,
       writable: !outside,
-      demo: !exists,
+      demo: !onDisk || blank,
     }
   }
 
@@ -57,15 +71,16 @@ export function resolveSetupTarget(root: string, explicit?: string): SetupTarget
   if ('ok' in located) {
     return { ok: false, reason: located.reason }
   }
-  const exists = existsSync(located.absolute)
+  const onDisk = existsSync(located.absolute)
+  const blank = onDisk && isBlankFile(located.absolute)
   const outside = !staysInRoot(root, located.absolute)
   const blocked = writeBlocked(located.display) || outside
   return {
     ok: true,
     target: located.display,
     absolute: located.absolute,
-    exists,
-    required: !exists && !blocked,
+    exists: onDisk && !blank,
+    required: (!onDisk || blank) && !blocked,
     writable: !blocked,
     demo: false,
   }
