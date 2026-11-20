@@ -10,6 +10,7 @@ import path from 'node:path'
 export type Running = {
   port: number
   stop: () => Promise<void>
+  logs: () => string
 }
 
 const NOW = '2026-11-19T10:00:00.000Z'
@@ -35,16 +36,18 @@ function stop(child: ChildProcess): Promise<void> {
   })
 }
 
-export async function boot(configPath: string, nowIso = NOW): Promise<Running> {
+export async function boot(configPath: string, nowIso = NOW, extraEnv: Record<string, string> = {}): Promise<Running> {
   const child = spawn(process.execPath, [path.join(process.cwd(), 'e2e', 'boot.mjs')], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       TINYBOTS_CONFIG: configPath,
       TINYBOTS_NOW: nowIso,
+      ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  const logged: Buffer[] = []
   const port = await new Promise<number>((resolve, reject) => {
     let out = ''
     const stderr: Buffer[] = []
@@ -54,8 +57,10 @@ export async function boot(configPath: string, nowIso = NOW): Promise<Running> {
     }, 15_000)
     child.stderr.on('data', (chunk: Buffer) => {
       stderr.push(chunk)
+      logged.push(chunk)
     })
     child.stdout.on('data', (chunk: Buffer) => {
+      logged.push(chunk)
       out += chunk.toString('utf8')
       const match = out.match(/READY (\d+)/)
       if (match) {
@@ -68,5 +73,5 @@ export async function boot(configPath: string, nowIso = NOW): Promise<Running> {
       reject(new Error(`сервер вышел с кодом ${code}: ${Buffer.concat(stderr).toString('utf8')}`))
     })
   })
-  return { port, stop: () => stop(child) }
+  return { port, stop: () => stop(child), logs: () => Buffer.concat(logged).toString('utf8') }
 }

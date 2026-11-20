@@ -14,7 +14,29 @@ import { buildMergeBrief, buildRevertBrief } from './authorize.js'
 import { readDecisions, readFeedbackFiles, readMerges, writeMergeFile, type StoredMerge } from './disk.js'
 import { acceptProjectFiles, restoreProjectFiles } from './files-apply.js'
 import { mockGithubMerge, mockGithubRevert } from './github-mock.js'
+import { logSafe } from '../redact.js'
 import { applyTransition } from './transition.js'
+
+/** Текст для владельца: без путей и без чужих дампов. */
+function publicFault(error: unknown): string {
+  if (error instanceof Error) {
+    const line = error.message.split(/\r?\n/)[0]?.trim() ?? ''
+    if (line.length > 0 && line.length <= 300 && !line.includes('/') && !line.includes('\\')) {
+      return line
+    }
+  }
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string' && /^[A-Z0-9_]+$/.test(code)) {
+      return `сбой отката (${code})`
+    }
+  }
+  return 'сбой отката'
+}
+
+function faultAction(action: string): 'merge' | 'revert' {
+  return action === 'revert' ? 'revert' : 'merge'
+}
 
 export type DeliverInput = {
   dataDir: string
@@ -31,6 +53,16 @@ type Act =
 
 function ownerOf(mr: MergeRequest, projectOwner: string): string {
   return mr.owner && mr.owner.length > 0 ? mr.owner : projectOwner
+}
+
+/** Успешный переход снимает старый fault, иначе панель продолжает показывать прошлый сбой. */
+function clearFault(mr: MergeRequest): MergeRequest {
+  if (!mr.fault) {
+    return mr
+  }
+  const next: MergeRequest = { ...mr }
+  delete next.fault
+  return next
 }
 
 function decisionMatches(id: string, mr: MergeRequest, decision: OwnerDecision): boolean {
@@ -163,9 +195,10 @@ async function runMerge(
     }
     try {
       await acceptProjectFiles({ projectDir: dir, mrId: id, files })
-    } catch {
-      current = applyTransition(current, { to: 'merge_failed', by: project.merge_executor, at, why: 'не удалось перенести файлы' })
-      return applyTransition(current, { to: 'awaiting_owner', by: project.lead, at, why: 'не удалось перенести файлы' })
+    } catch (error) {
+      const why = publicFault(error)
+      current = applyTransition(current, { to: 'merge_failed', by: project.merge_executor, at, why })
+      return applyTransition(current, { to: 'awaiting_owner', by: project.lead, at, why })
     }
     current = applyTransition(current, { to: 'merged', by: project.merge_executor, at, why: 'файлы приняты' })
     return { ...current, merge: { commit: null, executed_by: project.merge_executor, at } }
@@ -222,16 +255,18 @@ async function applyOne(stored: StoredMerge, input: DeliverInput, decisions: rea
   }
   const owner = ownerOf(stored.mr, project.owner)
   const mr = stored.mr
+  // Тот же объект — перехода не было, fault не трогаем. Новый объект — переход прошёл.
+  const done = (next: MergeRequest): MergeRequest => (next === mr ? next : clearFault(next))
   if (mr.state === 'approved') {
     const approved = decisions.find((item) => decisionMatches(stored.id, mr, item) && item.action === 'approved')
     if (approved && approved.head_sha !== mr.head_sha) {
-      return applyTransition(mr, {
+      return done(applyTransition(mr, {
         to: 'awaiting_owner',
         by: project.lead,
         at: input.now.toISOString(),
         why: 'head_sha изменился',
         cause: 'head_sha_changed',
-      })
+      }))
     }
   }
   const act = latestAct(stored.id, mr, decisions, feedbacks)
@@ -242,23 +277,27 @@ async function applyOne(stored: StoredMerge, input: DeliverInput, decisions: rea
     if (mr.state !== 'awaiting_owner' || act.feedback.by !== owner || changesAlreadyApplied(mr, act.feedback)) {
       return null
     }
-    return withChanges(mr, act.feedback, project.lead)
+    return done(withChanges(mr, act.feedback, project.lead))
   }
   const decision = act.decision
   if (decision.by !== owner || decision.head_sha !== mr.head_sha) {
+    return null
+  }
+  // Тот же сбой уже записан владельцу. Повторный синк не пробует откат молча.
+  if (mr.fault && mr.fault.at === decision.at && mr.fault.action === faultAction(decision.action)) {
     return null
   }
   if (decision.action === 'approved' && mr.state === 'awaiting_owner') {
     if (mr.checks === 'red' && decision.accept_risk !== true) {
       return null
     }
-    return runMerge(mr, stored.id, decision, project, input.configDirectory, decision.at)
+    return done(await runMerge(mr, stored.id, decision, project, input.configDirectory, decision.at))
   }
   if (decision.action === 'rejected' && mr.state === 'awaiting_owner') {
-    return applyTransition(mr, { to: 'rejected', by: owner, at: decision.at, why: 'решение владельца: отклонить' })
+    return done(applyTransition(mr, { to: 'rejected', by: owner, at: decision.at, why: 'решение владельца: отклонить' }))
   }
   if (decision.action === 'revert' && mr.state === 'merged') {
-    return runRevert(mr, stored.id, decision, project, input.configDirectory, decision.at)
+    return done(await runRevert(mr, stored.id, decision, project, input.configDirectory, decision.at))
   }
   return null
 }
@@ -277,8 +316,30 @@ export async function deliverOutbox(input: DeliverInput): Promise<DeliverReport>
       }
       await writeMergeFile(stored.file, next)
       applied.push({ id: stored.id, state: next.state })
-    } catch {
-      // Сбой этого запроса (нет снимка, симлинк, обрыв диска) не рвёт весь синк.
+    } catch (error) {
+      // Сбой этого запроса не рвёт весь синк, но причину пишем в запрос и в журнал.
+      // Пустой catch здесь раньше глотал сбой отката, и следующий синк пробовал снова.
+      const why = publicFault(error)
+      const project = input.config.projects.find((item) => item.id === stored.mr.project)
+      const owner = project ? ownerOf(stored.mr, project.owner) : 'owner'
+      const act = latestAct(stored.id, stored.mr, decisions, feedbacks)
+      const action = act?.kind === 'decision' ? faultAction(act.decision.action) : 'revert'
+      const at = act?.kind === 'decision' ? act.decision.at : input.now.toISOString()
+      if (stored.mr.fault && stored.mr.fault.action === action && stored.mr.fault.at === at) {
+        continue
+      }
+      const stamped = input.now.toISOString()
+      const next = {
+        ...stored.mr,
+        updated_at: stamped,
+        fault: { action, at, why },
+        history: [...stored.mr.history, { state: stored.mr.state, at: stamped, by: owner, why }],
+      }
+      try {
+        await writeMergeFile(stored.file, next)
+      } catch (writeError) {
+        logSafe(`не удалось записать сбой отката: ${publicFault(writeError)}`)
+      }
     }
   }
   return { applied }

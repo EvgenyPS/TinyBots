@@ -18,6 +18,7 @@ import { repoRoot } from '../root.js'
 import { startServer, type RunningServer } from '../server.js'
 import { buildMergeBrief, buildRevertBrief } from './authorize.js'
 import { deliverOutbox } from './deliver.js'
+import { ownerMergeError } from '../launcher/view.js'
 import { readMerges } from './disk.js'
 import { acceptProjectFiles, restoreProjectFiles, sha256Of } from './files-apply.js'
 import { mockGithubMerge } from './github-mock.js'
@@ -252,8 +253,67 @@ test('C9: ошибка отката одного запроса не рвёт с
   const config = configSchema.parse(baseConfig)
   const report = await deliverOutbox({ dataDir: data, config, configDirectory: root, now: new Date(AT) })
   expect(report.applied).toEqual([{ id: 'mr-ok', state: 'merged' }])
-  expect(readMerges(data).find((item) => item.id === 'mr-bad')?.mr.state).toBe('merged')
+  const stored = readMerges(data).find((item) => item.id === 'mr-bad')?.mr
+  expect(stored?.state).toBe('merged')
+  expect(stored?.fault?.why).toContain('нет снимка')
+  expect(stored?.history.some((item) => item.why.includes('нет снимка'))).toBe(true)
+  expect(ownerMergeError(stored!)).toContain('нет снимка')
   expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('до мержа\n')
+  const saved = readFileSync(path.join(data, 'merge_requests', 'mr-bad.json'))
+  const again = await deliverOutbox({ dataDir: data, config, configDirectory: root, now: new Date(AT) })
+  expect(again.applied).toEqual([])
+  expect(readFileSync(path.join(data, 'merge_requests', 'mr-bad.json')).equals(saved)).toBe(true)
+})
+
+test('Н45: успешный повтор отката снимает fault', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  const data = path.join(root, 'data')
+  mkdirSync(project, { recursive: true })
+  mkdirSync(path.join(data, 'merge_requests'), { recursive: true })
+  mkdirSync(path.join(data, 'outbox', 'decisions'), { recursive: true })
+  writeFileSync(path.join(project, 'note.txt'), 'до мержа\n')
+  const broken = request('merged', { id: 'mr-retry', mode: 'files', files: [{ path: 'note.txt' }] })
+  writeFileSync(path.join(data, 'merge_requests', 'mr-retry.json'), `${JSON.stringify(broken, null, 2)}\n`)
+  const decision = {
+    schema_version: 1,
+    updated_at: AT,
+    head_sha: SHA,
+    by: 'owner',
+    project: 'demo-game',
+  }
+  writeFileSync(path.join(data, 'outbox', 'decisions', 'mr-retry.json'), `${JSON.stringify({
+    ...decision,
+    action: 'revert',
+    at: AT,
+    pr_url: broken.pr_url,
+    mr_id: 'mr-retry',
+  }, null, 2)}\n`)
+  const config = configSchema.parse(baseConfig)
+  const first = await deliverOutbox({ dataDir: data, config, configDirectory: root, now: new Date(AT) })
+  expect(first.applied).toEqual([])
+  const failed = readMerges(data).find((item) => item.id === 'mr-retry')?.mr
+  expect(failed?.state).toBe('merged')
+  expect(failed?.fault?.why).toContain('нет снимка')
+  expect(ownerMergeError(failed!)).toContain('нет снимка')
+  mkdirSync(path.join(project, 'backups', 'mr-retry'), { recursive: true })
+  writeFileSync(path.join(project, 'backups', 'mr-retry', 'note.txt'), 'снимок\n')
+  const later = '2026-11-19T11:00:00.000Z'
+  writeFileSync(path.join(data, 'outbox', 'decisions', 'mr-retry-2.json'), `${JSON.stringify({
+    ...decision,
+    updated_at: later,
+    action: 'revert',
+    at: later,
+    pr_url: broken.pr_url,
+    mr_id: 'mr-retry',
+  }, null, 2)}\n`)
+  const second = await deliverOutbox({ dataDir: data, config, configDirectory: root, now: new Date(later) })
+  expect(second.applied).toEqual([{ id: 'mr-retry', state: 'reverted' }])
+  const stored = readMerges(data).find((item) => item.id === 'mr-retry')?.mr
+  expect(stored?.state).toBe('reverted')
+  expect(stored?.fault).toBeUndefined()
+  expect(ownerMergeError(stored!)).toBeNull()
+  expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('снимок\n')
 })
 
 test('симлинк не выносит файл и снимок за папку проекта', async () => {
@@ -333,6 +393,66 @@ test('C11: обрыв files-мержа возвращает исходные sha
   expect(await sha256Of(fileB)).toBe(beforeB)
   expect(readFileSync(fileA, 'utf8')).toBe('а-до\n')
   expect(readFileSync(fileB, 'utf8')).toBe('б-до\n')
+})
+
+test('Н46: манифест добавленных файлов записан до копирования', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  mkdirSync(path.join(project, 'staging'), { recursive: true })
+  writeFileSync(path.join(project, 'a.txt'), 'а-до\n')
+  writeFileSync(path.join(project, 'staging', 'a.txt'), 'а-после\n')
+  writeFileSync(path.join(project, 'staging', 'fresh.txt'), 'новый\n')
+  await expect(acceptProjectFiles({
+    projectDir: project,
+    mrId: 'mr-cycle',
+    files: ['fresh.txt', 'a.txt'],
+    beforeCopy: () => {
+      throw new Error('kill')
+    },
+  })).rejects.toThrow('kill')
+  const manifest = JSON.parse(readFileSync(path.join(project, 'backups', 'mr-cycle.manifest.json'), 'utf8')) as { created: string[] }
+  expect(manifest.created).toEqual(['fresh.txt'])
+  expect(existsSync(path.join(project, 'fresh.txt'))).toBe(false)
+  expect(readFileSync(path.join(project, 'a.txt'), 'utf8')).toBe('а-до\n')
+})
+
+test('Н47: симлинк перед записью не получает байты', async () => {
+  const root = scratch()
+  const project = path.join(root, 'project')
+  const outside = path.join(root, 'outside')
+  mkdirSync(path.join(project, 'staging'), { recursive: true })
+  mkdirSync(outside, { recursive: true })
+  const secret = path.join(outside, 'secret.txt')
+  writeFileSync(secret, 'секрет\n')
+  const live = path.join(project, 'note.txt')
+  const staging = path.join(project, 'staging', 'note.txt')
+  writeFileSync(live, 'до\n')
+  writeFileSync(staging, 'после\n')
+  await expect(acceptProjectFiles({
+    projectDir: project,
+    mrId: 'mr-cycle',
+    files: ['note.txt'],
+    beforeWrite: () => {
+      rmSync(live)
+      symlinkSync(secret, live)
+    },
+  })).rejects.toThrow()
+  expect(readFileSync(secret, 'utf8')).toBe('секрет\n')
+  expect(readFileSync(staging, 'utf8')).toBe('после\n')
+
+  rmSync(live)
+  writeFileSync(live, 'до\n')
+  await expect(acceptProjectFiles({
+    projectDir: project,
+    mrId: 'mr-next',
+    files: ['note.txt'],
+    beforeWrite: () => {
+      rmSync(staging)
+      symlinkSync(secret, staging)
+    },
+  })).rejects.toThrow()
+  expect(readFileSync(secret, 'utf8')).toBe('секрет\n')
+  expect(readFileSync(live, 'utf8')).toBe('до\n')
 })
 
 test('Н44: запрос не затирает backups другого id', async () => {

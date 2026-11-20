@@ -9,16 +9,17 @@
  * Сначала проверяем все пути. Обрыв посреди копирования откатывает уже заменённые файлы.
  */
 
-import { lstat, mkdir, readFile, realpath, rm } from 'node:fs/promises'
+import { lstat, mkdir, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { isMergeFilePath } from '@tinybots/schema'
+import { assertPathNotSymlink, readNoFollow } from '../store/nofollow.js'
 import { writeAtomic } from '../store/atomic.js'
 import { createHash } from 'node:crypto'
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 export async function sha256Of(file: string): Promise<string> {
-  const data = await readFile(file)
+  const data = await readNoFollow(file)
   return createHash('sha256').update(data).digest('hex')
 }
 
@@ -113,7 +114,7 @@ async function readCreated(rootReal: string, mrId: string): Promise<Set<string>>
     if (st.isSymbolicLink()) {
       throw new Error('путь файла')
     }
-    raw = await readFile(file, 'utf8')
+    raw = (await readNoFollow(file)).toString('utf8')
   } catch (error) {
     if (isEnoent(error)) {
       return new Set()
@@ -133,8 +134,10 @@ async function rollback(done: readonly Plan[]): Promise<void> {
       await rm(plan.live, { force: true })
       continue
     }
-    const bytes = await readFile(plan.backup)
-    await writeAtomic(plan.live, bytes)
+    await assertPathNotSymlink(plan.backup)
+    const bytes = await readNoFollow(plan.backup)
+    await assertPathNotSymlink(plan.live)
+    await writeAtomic(plan.live, bytes, { beforeCommit: () => assertPathNotSymlink(plan.live) })
   }
 }
 
@@ -144,6 +147,10 @@ export async function acceptProjectFiles(input: {
   files: readonly string[]
   /** Крюк теста: бросить после успешной замены файла с этим индексом. */
   afterCopy?: (index: number) => void
+  /** Крюк теста: бросить после манифеста и до первого копирования. */
+  beforeCopy?: () => void
+  /** Крюк теста: подменить путь сразу перед записью этого файла. */
+  beforeWrite?: (rel: string) => void
 }): Promise<{ backupDir: string }> {
   if (!SLUG.test(input.mrId)) {
     throw new Error('id снимка')
@@ -190,14 +197,24 @@ export async function acceptProjectFiles(input: {
   if (!manifest || !staysIn(rootReal, backupDir)) {
     throw new Error('путь файла')
   }
+  // Манифест до цикла: kill посреди копирования всё ещё знает, какие файлы были новыми.
+  await mkdir(path.dirname(manifest), { recursive: true })
+  await assertPathNotSymlink(manifest)
+  const body = `${JSON.stringify({ created: plans.filter((plan) => plan.created).map((plan) => plan.rel) }, null, 2)}\n`
+  await writeAtomic(manifest, body, { beforeCommit: () => assertPathNotSymlink(manifest) })
   const done: Plan[] = []
   try {
+    input.beforeCopy?.()
     for (let index = 0; index < plans.length; index += 1) {
       const plan = plans[index]
       if (!plan) {
         throw new Error('путь файла')
       }
+      input.beforeWrite?.(plan.rel)
+      await assertPathNotSymlink(plan.staging)
       await mkdir(path.dirname(plan.backup), { recursive: true })
+      await mkdir(path.dirname(plan.live), { recursive: true })
+      await assertPathNotSymlink(plan.live)
       // Первый снимок не затираем: повторный перенос не должен подменить исходные байты.
       if (!plan.created) {
         let backupExists = true
@@ -213,19 +230,26 @@ export async function acceptProjectFiles(input: {
           backupExists = false
         }
         if (!backupExists) {
-          await writeAtomic(plan.backup, await readFile(plan.live))
+          await assertPathNotSymlink(plan.live)
+          await writeAtomic(plan.backup, await readNoFollow(plan.live), {
+            beforeCommit: () => assertPathNotSymlink(plan.backup),
+          })
         }
       }
-      await mkdir(path.dirname(plan.live), { recursive: true })
-      await writeAtomic(plan.live, await readFile(plan.staging))
+      await assertPathNotSymlink(plan.staging)
+      await writeAtomic(plan.live, await readNoFollow(plan.staging), {
+        beforeCommit: () => assertPathNotSymlink(plan.live),
+      })
       done.push(plan)
       input.afterCopy?.(index)
     }
-    await mkdir(path.dirname(manifest), { recursive: true })
-    const body = `${JSON.stringify({ created: plans.filter((plan) => plan.created).map((plan) => plan.rel) }, null, 2)}\n`
-    await writeAtomic(manifest, body)
   } catch (error) {
-    await rollback(done)
+    try {
+      await rollback(done)
+    } catch (rollbackError) {
+      const why = rollbackError instanceof Error ? rollbackError.message : 'сбой отката'
+      throw new Error(`сбой отката: ${why}`)
+    }
     throw error
   }
   return { backupDir }
@@ -282,6 +306,9 @@ export async function restoreProjectFiles(input: {
       throw new Error('нет снимка')
     }
     await mkdir(path.dirname(plan.live), { recursive: true })
-    await writeAtomic(plan.live, await readFile(plan.backup))
+    await assertPathNotSymlink(plan.backup)
+    await writeAtomic(plan.live, await readNoFollow(plan.backup), {
+      beforeCommit: () => assertPathNotSymlink(plan.live),
+    })
   }
 }

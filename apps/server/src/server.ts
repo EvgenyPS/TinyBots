@@ -2,7 +2,7 @@
  * FILE: apps/server/src/server.ts
  * НАЗНАЧЕНИЕ: HTTP пульта на 127.0.0.1.
  * ВХОД: config.yaml (или демо-набор) и сборка apps/web/dist, если она есть.
- * ВЫХОД: /health, /api/bots (список каркаса), API проектов, ботов, чатов, записок и страница.
+ * ВЫХОД: /health, /api/bots, пульт, Git, дерево файлов, markdown и страница.
  * Чужой Host, Origin или чужой порт — 403. Запись — POST /api/setup и решения по мержу:
  * тот же requestAllowed, что и у чтения, плюс непустой Origin и токен.
  * Нет заголовка Origin или он пустой — чтение пускает (так открывают страницу), запись нет.
@@ -31,6 +31,8 @@ import { inspectSource } from './config/source-check.js'
 import { newCsrfToken, tokensMatch } from './csrf.js'
 import { FALLBACK_HTML } from './fallback-html.js'
 import { briefStatus, loadBrief } from './briefs/load.js'
+import { readProjectDoc, readProjectTree } from './files/index.js'
+import { readGitSummary } from './git/index.js'
 import { requestAllowed } from './guard.js'
 import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
 import { postDecision, postSync } from './merge/http.js'
@@ -139,6 +141,11 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     if (!requestAllowed(host, origin, boundPort.current)) {
       return c.json({ error: 'forbidden_host' }, 403)
     }
+    // Чужая страница может дернуть GET без CORS и потратить лимит токена GitHub.
+    // Своя страница шлёт same-origin или не шлёт заголовок вовсе. Других таких GET нет.
+    if (pathname === '/api/git' && c.req.header('sec-fetch-site')?.trim().toLowerCase() === 'cross-site') {
+      return c.json({ error: 'forbidden_host' }, 403)
+    }
     await next()
   })
 
@@ -212,6 +219,24 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
       return c.json(result, 422)
     }
     return c.json({ ok: true, synced_at: result.synced_at, synced_label: result.synced_label })
+  })
+
+  app.get('/api/git', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const sent = await readGitSummary(root, options?.configPath, c.req.query('project') ?? '')
+    return c.json(sent.body, sent.status)
+  })
+
+  app.get('/api/files', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const sent = await readProjectTree(root, options?.configPath, c.req.query('project') ?? '')
+    return c.json(sent.body, sent.status)
+  })
+
+  app.get('/api/docs', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const sent = await readProjectDoc(root, options?.configPath, c.req.query('project') ?? '', c.req.query('path') ?? '')
+    return c.json(sent.body, sent.status)
   })
 
   app.get('/api/brief', (c) => {

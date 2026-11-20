@@ -65,10 +65,19 @@ function isUncOrDevicePath(value: string): boolean {
 /** Имена устройств Windows. С расширением (CON.txt) это всё ещё устройство. */
 const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/
 
+/**
+ * NTFS срезает хвостовые точки и пробелы и ведущие пробелы.
+ * Сравнение с запретным именем делаем уже по срезанному сегменту.
+ */
+function stripSegmentEdges(segment: string): string {
+  return segment.replace(/[. ]+$/u, '').replace(/^ +/u, '')
+}
+
 function isReservedDeviceName(segment: string): boolean {
-  const lower = segment.toLowerCase()
+  const lower = stripSegmentEdges(segment).toLowerCase()
   const dot = lower.indexOf('.')
-  const stem = dot === -1 ? lower : lower.slice(0, dot)
+  // «CON .txt»: пробел перед точкой не спасает, Windows всё равно видит CON.
+  const stem = (dot === -1 ? lower : lower.slice(0, dot)).replace(/ /g, '')
   return stem.length > 0 && RESERVED_DEVICE.test(stem)
 }
 
@@ -88,9 +97,12 @@ export function isProjectFolderPath(value: string): boolean {
  * иначе мерж записал бы хуки репозитория.
  * backups/ и staging/ — служебные каталоги снимка, их запрос не затирает.
  * «.», пустой сегмент, NUL и имена устройств Windows тоже отказ.
+ * Хвостовые точки и пробелы сегмента отвергаем, а не срезаем молча:
+ * на NTFS `backups.` и `.git ` совпали бы со служебными именами.
+ * Двоеточие — поток NTFS (`note.txt:stream`), такой путь не переносим.
  */
 export function isMergeFilePath(value: string): boolean {
-  if (hasControlChar(value) || !isContainedPath(value)) {
+  if (value.includes(':') || hasControlChar(value) || !isContainedPath(value)) {
     return false
   }
   const segments = value.split('/')
@@ -98,7 +110,11 @@ export function isMergeFilePath(value: string): boolean {
     return false
   }
   for (const segment of segments) {
-    const lower = segment.toLowerCase()
+    const cleaned = stripSegmentEdges(segment)
+    if (cleaned.length === 0 || cleaned !== segment) {
+      return false
+    }
+    const lower = cleaned.toLowerCase()
     if (lower === '.git' || lower === 'backups' || lower === 'staging') {
       return false
     }
@@ -142,7 +158,7 @@ export function isSafeDataDir(value: string): boolean {
   }
   const segments = value.split('/').filter((part) => part.length > 0 && part !== '.')
   for (const segment of segments) {
-    const cleaned = segment.replace(/[. ]+$/u, '').replace(/^ +/u, '')
+    const cleaned = stripSegmentEdges(segment)
     if (cleaned.length === 0) {
       return false
     }

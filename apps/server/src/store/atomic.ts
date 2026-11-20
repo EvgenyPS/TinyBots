@@ -19,6 +19,11 @@ export type AtomicHooks = {
   rename?: (from: string, to: string) => Promise<void>
   /** Подмена паузы в тесте, чтобы не ждать настоящие миллисекунды. */
   sleep?: (ms: number) => Promise<void>
+  /**
+   * Прямо перед rename. Сюда кладём повторную проверку симлинка:
+   * между планом и записью путь могли подменить.
+   */
+  beforeCommit?: () => Promise<void> | void
 }
 
 const CHUNK = 16 * 1024
@@ -97,6 +102,9 @@ export async function writeAtomic(target: string, body: string | Uint8Array, hoo
     await handle.sync()
     await handle.close()
     handle = undefined
+    if (hooks?.beforeCommit) {
+      await hooks.beforeCommit()
+    }
     await renameReplace(tmp, target, hooks)
     committed = true
   } catch (error) {
