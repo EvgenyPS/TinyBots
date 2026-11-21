@@ -191,6 +191,26 @@ test('запрос без потока, журнал без промпта и о
   expect(blocked.ok).toBe(false)
 })
 
+test('фейковый резолвер в translated IPv4 и NAT64 local не вызывает fetch', async () => {
+  for (const address of ['::ffff:0:a9fe:a9fe', '64:ff9b:1::1']) {
+    let called = false
+    const result = await completeChat({
+      baseUrl: 'https://model.example/v1',
+      apiKey: KEY,
+      model: 'deepseek-chat',
+      system: 'роль',
+      user: 'текст',
+      lookup: async () => [address],
+      fetchImpl: (async () => {
+        called = true
+        return new Response('{}', { status: 200 })
+      }) as typeof fetch,
+    })
+    expect(called, address).toBe(false)
+    expect(result.ok, address).toBe(false)
+  }
+})
+
 test('заголовки без тела и обрыв после заголовков не роняют процесс и не пишут стек', async () => {
   async function listen(mode: 'hang' | 'drop'): Promise<{ port: number; close: () => Promise<void> }> {
     const sockets = new Set<import('node:net').Socket>()

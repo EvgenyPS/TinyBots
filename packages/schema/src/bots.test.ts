@@ -46,6 +46,24 @@ test('пресет deepseek и qwen подставляет официальны�
   }
 })
 
+test('superRefine отвергает http вне loopback и частный адрес, https проходит', () => {
+  const config = (baseUrl: string) => ({
+    schema_version: 1,
+    owner: { name: 'Ника', confirms_merge: true },
+    data_dir: 'data',
+    delivery: 'clipboard' as const,
+    bots: [{ ...apiBot, base_url: baseUrl }],
+    projects: [],
+    economy: {
+      defaults: { wake: 'mentioned_only' as const, reply_limit: 'short' as const, max_wakes_per_task: 3 },
+      stale_after_hours: 6,
+    },
+  })
+  expect(configSchema.safeParse(config('http://example.com/v1')).success).toBe(false)
+  expect(configSchema.safeParse(config('https://10.0.0.1/')).success).toBe(false)
+  expect(configSchema.safeParse(config('https://api.deepseek.com')).success).toBe(true)
+})
+
 test('у бота Grok нет полей модели, у своего бота нет grok_id и значения ключа', () => {
   expect(grokBotSchema.safeParse({ id: 'lead1', name: 'Ава', role: 'тимлид', grok_id: 'demo-ava' }).success).toBe(true)
   expect(grokBotSchema.safeParse({

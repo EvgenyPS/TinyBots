@@ -36,6 +36,9 @@ const blocked = [
   'https://[fe80::1]/',
   'https://[::ffff:10.0.0.1]/',
   'https://[64:ff9b::8.8.8.8]/v1',
+  'https://[64:ff9b:1::1]/',
+  'http://[::ffff:0:a9fe:a9fe]/',
+  'https://[::ffff:0:a9fe:a9fe]/',
   'https://[2002::1]/',
   'https://[::10.0.0.1]/',
   'https://[::a00:1]/',
@@ -75,6 +78,8 @@ test('вид адреса: loopback, частный, публичный, v4 вн
   expect(addressKind('fc00::1')).toBe('blocked')
   expect(addressKind('fe80::1')).toBe('blocked')
   expect(addressKind('64:ff9b::808:808')).toBe('blocked')
+  expect(addressKind('64:ff9b:1::1')).toBe('blocked')
+  expect(addressKind('::ffff:0:a9fe:a9fe')).toBe('blocked')
   expect(addressKind('2002::1')).toBe('blocked')
   expect(addressKind('::a00:1')).toBe('blocked')
   expect(addressKind('fec0::1')).toBe('blocked')
