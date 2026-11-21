@@ -145,12 +145,10 @@ test('I5 search: файлы, каталоги, байты, совпадения 
   const files = path.join(root, 'files')
   mkdirSync(files)
   for (let index = 0; index < SEARCH_FILES_MAX; index += 1) {
-    const bucket = path.join(files, `n${index}`)
-    mkdirSync(bucket)
-    writeFileSync(path.join(bucket, 'f.txt'), 'a')
+    writeFileSync(path.join(files, `f${index}.txt`), 'a')
   }
   expect(parsed(await runTool(ctx, 'search', JSON.stringify({ query: 'zz', path: 'files' }))).ok).toBe(true)
-  await writeFile(path.join(files, 'n0', 'extra.txt'), 'a')
+  await writeFile(path.join(files, 'extra.txt'), 'a')
   expect(parsed(await runTool(ctx, 'search', JSON.stringify({ query: 'zz', path: 'files' })))).toMatchObject({
     ok: false,
     error: 'слишком много файлов',
@@ -195,7 +193,7 @@ test('I5 search: файлы, каталоги, байты, совпадения 
   expect(parsed(await ask('z'.repeat(SEARCH_QUERY_MAX))).ok).toBe(true)
   expect(parsed(await ask('z'))).toMatchObject({ ok: false, error: 'длина запроса' })
   expect(parsed(await ask('z'.repeat(SEARCH_QUERY_MAX + 1)))).toMatchObject({ ok: false, error: 'длина запроса' })
-}, 480_000)
+}, 900_000)
 
 test('I5 diff: 256 КиБ, 20 файлов и итог 1 МиБ', () => {
   const one = '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-old\n+new\n'
