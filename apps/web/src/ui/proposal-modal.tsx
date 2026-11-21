@@ -39,6 +39,13 @@ const STATE_LABEL: Record<string, string> = {
   revert_conflict: 'Не применяется',
 }
 
+const HIST_LABEL: Record<string, string> = {
+  ...STATE_LABEL,
+  proposed: 'Предложено',
+  conflict: 'Не применилось',
+  revert_conflict: 'Не применилось',
+}
+
 const STATE_CLASS: Record<string, string> = {
   proposed: 's-new',
   applying: 's-wait',
@@ -62,6 +69,35 @@ const WHY: Record<string, string> = {
   owner: 'репозиторий принадлежит другому пользователю',
   partial: 'частичный клон не поддерживается',
   revert_conflict: 'ветку уже меняли, удалять её нельзя',
+}
+
+function ru(n: number, one: string, few: string, many: string): string {
+  const n10 = n % 10
+  const n100 = n % 100
+  const word = n10 === 1 && n100 !== 11 ? one : n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14) ? few : many
+  return `${n} ${word}`
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 7)
+}
+
+function Icon(props: { d: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d={props.d} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+const ICON = {
+  doc: 'M7 3h7l5 5v13H7zM14 3v5h5',
+  ok: 'M5 12l5 5L20 7',
+  warn: 'M12 4l9 16H3zM12 10v4M12 17h.01',
+  info: 'M12 8h.01M11 12h1v5h1',
+  undo: 'M4 8h11a5 5 0 010 10H8M4 8l4-4M4 8l4 4',
+  branch: 'M6 4v12M6 8h8a4 4 0 010 8H10',
+  snap: 'M5 7h14v12H5zM8 7V5h8v2',
 }
 
 function executable(file: string): boolean {
@@ -187,6 +223,7 @@ function Toast(props: { kind: 'ok' | 'gr' | 'bl'; title: string; text: string; o
     }, 200)
     return () => window.clearInterval(timer)
   }, [paused])
+  const icon = props.kind === 'ok' ? ICON.ok : props.kind === 'bl' ? ICON.undo : ICON.info
   return (
     <div
       className={`mtoast ${props.kind}`}
@@ -199,9 +236,10 @@ function Toast(props: { kind: 'ok' | 'gr' | 'bl'; title: string; text: string; o
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
     >
+      <span className="ic"><Icon d={icon} /></span>
       <div>
         <b>{props.title}</b>
-        <span>{props.text}</span>
+        <span className="tx">{props.text}</span>
       </div>
       <button type="button" className="cl" aria-label="Скрыть уведомление" onClick={props.onClose}>×</button>
       <span className="bar" ref={bar} aria-hidden="true" />
@@ -213,15 +251,18 @@ function ErrorCard(props: { reason: string; files: string[]; onCollapse: () => v
   const rise = useRise()
   return (
     <div className="merr" data-rise={rise} role="alert" aria-live="assertive" data-testid="proposal-error">
-      <div>
-        <b>Проект изменился после предложения — ничего не записано</b>
-        <ul>
-          {props.files.map((file) => (
-            <li key={file}><span className="mono">{file}</span><span>{props.reason}</span></li>
-          ))}
-        </ul>
+      <div className="merr-b">
+        <span className="ic"><Icon d={ICON.warn} /></span>
+        <div>
+          <b>Проект изменился</b>
+          <ul>
+            {props.files.map((file) => (
+              <li key={file}><span className="mono">{file}</span><span className="why">{props.reason}</span></li>
+            ))}
+          </ul>
+        </div>
       </div>
-      <button type="button" className="col" data-testid="proposal-error-collapse" onClick={props.onCollapse}>Свернуть</button>
+      <button type="button" className="collapse" data-testid="proposal-error-collapse" onClick={props.onCollapse}>Свернуть</button>
     </div>
   )
 }
@@ -229,6 +270,7 @@ function ErrorCard(props: { reason: string; files: string[]; onCollapse: () => v
 export function ProposalModal(props: {
   item: ProposalView
   botName: string
+  ownerName: string
   projectTitle: string
   busy: boolean
   waiting: boolean
@@ -238,6 +280,7 @@ export function ProposalModal(props: {
   onReject: () => void
   onRevert: () => void
   onAsk: () => void
+  onWrite: () => void
   canAsk: boolean
 }) {
   const { item, busy, onClose } = props
@@ -262,6 +305,16 @@ export function ProposalModal(props: {
     { add: 0, del: 0 },
   )
   const reason = WHY[item.why] ?? (conflict ? 'проект изменился после предложения' : '')
+  const headline = item.summary.split('\n')[0] ?? ''
+  const hunks = rows.filter((row) => row.kind === 'hunk').length
+  const share = total.add + total.del === 0 ? 0 : Math.round((total.del / (total.add + total.del)) * 100)
+  const history = (item.history ?? [{ state: item.state, at: '', by: item.bot_id, why: item.why }])
+    .filter((row) => row.state !== 'applying' && row.state !== 'reverting')
+  function person(by: string): string {
+    if (by === item.bot_id) return props.botName
+    if (by === 'owner') return props.ownerName
+    return by
+  }
 
   useEffect(() => {
     setToastOn(props.notice !== null)
@@ -296,28 +349,28 @@ export function ProposalModal(props: {
   }
 
   return (
-    <div className="modal-bg" data-testid="proposal-dialog-bg">
+    <div className="modal-bg pm-center" data-testid="proposal-dialog-bg">
       <div className="pm" role="dialog" aria-modal="true" aria-labelledby="proposal-title" ref={dialogRef} data-testid="proposal-dialog" data-state={item.state}>
         <div className="pm-h">
           <div className="ttl">
-            <h2 id="proposal-title" data-testid="proposal-title">Предложение #{item.id}</h2>
+            <h2 id="proposal-title" data-testid="proposal-title" title={item.id}>Предложение #{shortId(item.id)}</h2>
             {chip(item.state)}
-            <span className="sub pm-ellipsis">{props.projectTitle}</span>
+            <span className="sub pm-ellipsis" title={headline}>{headline}</span>
           </div>
           <button type="button" className="x" onClick={onClose} aria-label="Закрыть" data-testid="proposal-close">×</button>
           <div className="by">
             <b>{props.botName}</b>
             <span>свой бот по API</span>
             {item.task_id ? <span>задача {item.task_id}</span> : null}
-            <span>{item.files.length} файла, <span className="plus">+{total.add}</span> <span className="minus">−{total.del}</span></span>
+            <span>{ru(item.files.length, 'файл', 'файла', 'файлов')}, <span className="plus">+{total.add}</span> <span className="minus">−{total.del}</span></span>
             <span className="mono">патч {item.patch_sha256.slice(0, 7)}</span>
           </div>
           <div className="hist">
-            {(item.history ?? [{ state: item.state, at: '', by: props.botName, why: item.why }]).map((row, index) => (
+            {history.map((row, index) => (
               <span key={`${row.state}-${row.at}-${index}`} className={`st ${histClass(row.state)}`}>
                 {index > 0 ? <span className="arr">→ </span> : null}
                 <i />
-                <b>{STATE_LABEL[row.state] ?? row.state}</b> {row.by}{row.at ? ` · ${when(row.at)}` : ''}
+                <b>{HIST_LABEL[row.state] ?? row.state}</b> <em>{person(row.by)}{row.at ? ` · ${when(row.at)}` : ''}</em>
               </span>
             ))}
           </div>
@@ -330,7 +383,9 @@ export function ProposalModal(props: {
           <div className="box mode">
             <div className="k">Режим применения</div>
             <div className="mode-row" data-testid="proposal-mode">
-              {git ? `Git-ветка ${item.branch ?? ''}` : 'Замена файлов со снимком'}
+              <Icon d={git ? ICON.branch : ICON.snap} />
+              {git ? 'Git-ветка' : 'Замена файлов со снимком'}
+              {git && item.branch ? <span className="branch">{item.branch}</span> : null}
             </div>
             <p>
               {git
@@ -346,11 +401,12 @@ export function ProposalModal(props: {
               const stat = counts(item.diff, row.path)
               return (
                 <button key={row.path} type="button" className={row.path === active ? 'frow on' : 'frow'} onClick={() => setFile(row.path)}>
+                  <Icon d={ICON.doc} />
                   <span className="p">{row.path}</span>
                   <span className="n"><span className="plus">+{stat.add}</span> <span className="minus">−{stat.del}</span></span>
                   <span className="tags">
                     {row.is_new ? <span className="mini new">новый</span> : null}
-                    {executable(row.path) ? <span className="mini exe" title={EXEC_HINT} data-testid={`exec-${row.path}`}>исполняемый/CI</span> : null}
+                    {executable(row.path) ? <span className="mini exe" title={EXEC_HINT} data-testid={`exec-${row.path}`}>исполняется при сборке</span> : null}
                     {conflict ? <span className="mini cf">{reason}</span> : null}
                   </span>
                 </button>
@@ -359,9 +415,11 @@ export function ProposalModal(props: {
           </div>
           <div className="diff">
             <div className="dh">
-              <span className="p">{active}</span>
+              <span className="p mono">{active}</span>
               <span className="sp" />
-              <span className="tg">{rows.filter((row) => row.kind === 'hunk').length} фрагмента</span>
+              <span className="plus">+{counts(item.diff, active).add}</span>
+              <span className="minus">−{counts(item.diff, active).del}</span>
+              <span className="tg">{ru(hunks, 'фрагмент', 'фрагмента', 'фрагментов')}</span>
             </div>
             <div className="code" data-testid="proposal-diff">
               {rows.map((row, index) => (
@@ -383,23 +441,24 @@ export function ProposalModal(props: {
           {proposed ? (
             <div className="guards">
               <span className="k">Проверено</span>
-              <span className="g">без удаления и переименования</span>
-              <span className="g">{item.files.length} из 20 файлов</span>
-              {item.files.some((row) => executable(row.path)) ? <span className="g w">есть файл, который исполняется при сборке</span> : null}
+              <span className="g"><Icon d={ICON.ok} />без удаления и переименования</span>
+              <span className="g"><Icon d={ICON.ok} />стёрто ≤ 50% файла · здесь до {share}%</span>
+              <span className="g"><Icon d={ICON.ok} />{item.files.length} из 20 файлов</span>
+              {item.files.some((row) => executable(row.path)) ? <span className="g w"><Icon d={ICON.warn} />исполняется при сборке</span> : null}
             </div>
           ) : null}
           {applied ? (
             <div className="fnote" data-testid="proposal-foot">
               {git
-                ? <span>Ветка <b className="mono">{item.branch}</b>{item.commit ? ` · коммит ${item.commit}` : ''} · откат удалит ветку, если её не влили и не сдвинули</span>
-                : <span>Снимок сохранён. Откат вернёт файлы, пока их не меняли после применения.</span>}
+                ? <span><Icon d={ICON.branch} />Ветка <b className="mono">{item.branch}</b>{item.commit ? ` · коммит ${item.commit}` : ''}</span>
+                : <span><Icon d={ICON.snap} /><b>Снимок</b>{item.history?.find((row) => row.state === 'applied')?.at ? ` · ${when(item.history.find((row) => row.state === 'applied')?.at ?? '')}` : ''} · {ru(item.files.length, 'файл', 'файла', 'файлов')}</span>}
             </div>
           ) : null}
           {rejected ? <div className="fnote">Отклонено. Проект не менялся.</div> : null}
           {reverted ? <div className="fnote">Откачено. Файлы восстановлены, копия правки остаётся в предложении.</div> : null}
           {conflict ? (
             <div className="fnote err">
-              <b>Не применяется:</b> {reason}
+              <b>Не применяется:</b> {ru(item.files.length, 'файл изменился', 'файла изменились', 'файлов изменились')} после предложения
               {!errorOpen ? <button type="button" className="lnk" data-testid="proposal-error-more" onClick={() => setErrorOpen(true)}>Подробнее</button> : null}
             </div>
           ) : null}
@@ -413,13 +472,16 @@ export function ProposalModal(props: {
             {conflict ? (
               <button type="button" className="btn primary" data-testid="proposal-ask" disabled={busy || !props.canAsk} onClick={props.onAsk}>Попросить бота обновить</button>
             ) : null}
-            {applied ? (
-              <button type="button" className="btn danger" data-testid="proposal-revert" disabled={busy} onClick={() => setConfirmRevert(true)}>
-                {git ? 'Удалить ветку…' : 'Откатить…'}
-              </button>
+            {(rejected || reverted) ? (
+              <button type="button" className="btn" data-testid="proposal-write" disabled={busy || !props.canAsk} onClick={props.onWrite}>Написать {props.botName}</button>
             ) : null}
             {!proposed && !conflict ? (
-              <button type="button" className="btn primary" onClick={onClose}>Закрыть</button>
+              <button type="button" className="btn" onClick={onClose}>Закрыть</button>
+            ) : null}
+            {applied ? (
+              <button type="button" className="btn danger" data-testid="proposal-revert" disabled={busy} onClick={() => setConfirmRevert(true)}>
+                <Icon d={ICON.undo} />{git ? 'Удалить ветку…' : 'Откатить…'}
+              </button>
             ) : null}
           </div>
         </div>
@@ -428,16 +490,20 @@ export function ProposalModal(props: {
         <div className="modal-bg pm-confirm-bg">
           <div className="cm" role="alertdialog" aria-modal="true" data-testid="proposal-revert-confirm">
             <div className="k">{git ? 'Режим: git-ветка' : 'Режим: замена файлов со снимком'}</div>
-            <h3>{git ? `Удалить ветку предложения #${item.id}?` : `Откатить предложение #${item.id}?`}</h3>
+            <h3>{git ? `Удалить ветку предложения #${shortId(item.id)}?` : `Откатить предложение #${shortId(item.id)}?`}</h3>
             <p>
               {git
-                ? 'Удалим локальную ветку с одним коммитом. Рабочее дерево и текущая ветка не меняются.'
+                ? 'Удалим только ветку бота. Коммит останется в базе git, файлы на диске не меняются.'
                 : 'Вернём файлы к состоянию до применения из снимка. Созданный файл уберём с диска, копия останется в предложении.'}
             </p>
             <ul>
-              {git ? <li><span className="mono">{item.branch}</span><small>ветка будет удалена, коммит останется в базе git</small></li> : null}
-              {item.files.map((row) => (
-                <li key={row.path}><span className="mono">{row.path}</span><small>{row.is_new && !git ? 'файл создан ботом — уберём с диска' : 'вернётся прежнее содержимое'}</small></li>
+              {git ? (
+                <>
+                  <li><Icon d={ICON.branch} /><span><b className="mono">{item.branch}</b> — ветка будет удалена{item.commit ? ` · коммит ${item.commit}` : ''}</span></li>
+                  <li><Icon d={ICON.snap} /><span>Ваши файлы на диске — не трогаем, они и не менялись</span></li>
+                </>
+              ) : item.files.map((row) => (
+                <li key={row.path}><Icon d={ICON.doc} /><span><b className="mono">{row.path}</b><small>{row.is_new ? 'файл создан ботом — уберём с диска' : 'вернётся прежнее содержимое'}</small></span></li>
               ))}
             </ul>
             <div className="warnline">Если файлы или ветку уже меняли после применения — откат остановится и ничего не изменит.</div>
@@ -485,17 +551,21 @@ export function ProposalDrawer(props: {
           <div className="grp">Ждут решения · {waiting.length}</div>
           {shown(waiting).map((item) => (
             <button key={item.id} type="button" className="pitem" data-testid="proposal-item" onClick={() => props.onOpen(item.id)}>
-              <b>{item.summary}</b>
+              <span className="av" aria-hidden="true" />
+              <b>{item.summary.split('\n')[0]}</b>
               {chip(item.state)}
-              <span className="m">#{item.id} · {item.mode === 'git' ? 'git-ветка' : 'снимок'}</span>
+              <span className="m">#{shortId(item.id)} · {ru(item.files.length, 'файл', 'файла', 'файлов')} · {item.mode === 'git' ? 'git-ветка' : 'снимок'}</span>
+              <span className="who">{props.botName}</span>
             </button>
           ))}
           <div className="grp">Закрытые · {closed.length}</div>
           {shown(closed).map((item) => (
             <button key={item.id} type="button" className="pitem" data-testid="proposal-item" onClick={() => props.onOpen(item.id)}>
-              <b>{item.summary}</b>
+              <span className="av" aria-hidden="true" />
+              <b>{item.summary.split('\n')[0]}</b>
               {chip(item.state)}
-              <span className="m">#{item.id} · {item.mode === 'git' ? 'git-ветка' : 'снимок'}</span>
+              <span className="m">#{shortId(item.id)} · {ru(item.files.length, 'файл', 'файла', 'файлов')} · {item.mode === 'git' ? 'git-ветка' : 'снимок'}</span>
+              <span className="who">{props.botName}</span>
             </button>
           ))}
         </div>

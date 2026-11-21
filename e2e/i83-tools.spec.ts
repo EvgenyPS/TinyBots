@@ -95,10 +95,12 @@ test('карточка бота включает propose и появляется
   try {
     await page.goto(origin(server.port))
     await page.getByTestId('orbit-bot-nora').click()
+    await page.getByTestId('bot-settings').click()
     await page.getByTestId('bot-tools-propose').check()
     await page.getByTestId('bot-tools-allow').check()
     await page.getByTestId('bot-tools-save').click()
     await expect(page.getByTestId('bot-tools-note')).toHaveText('Записано')
+    await page.getByLabel('Закрыть настройки').click()
     const saved = readFileSync(configFile, 'utf8')
     expect(saved).toContain('propose')
     expect(saved).toMatch(/apply_mode: files/)

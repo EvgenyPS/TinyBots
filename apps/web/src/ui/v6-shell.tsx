@@ -205,6 +205,7 @@ function BotTools(props: {
   project: Project
   csrf: string
   onDone: () => void
+  onClose: () => void
 }) {
   const folderGit = props.project.folder_git === true
   const [level, setLevel] = useState<'off' | 'read' | 'propose'>(props.bot.project_tools ?? 'off')
@@ -244,50 +245,99 @@ function BotTools(props: {
       setBusy(false)
     }
   }
+  const [tab, setTab] = useState('access')
+  const api = props.bot.transport === 'api'
   return (
-    <div data-testid="bot-tools" className={level === 'off' ? 'access off' : 'access'}>
-      <h4>Доступ к папке</h4>
-      <fieldset className="radios" data-testid="bot-tools-level">
-        <legend>Инструменты этого бота</legend>
-        <label className={level === 'off' ? 'opt on' : 'opt'}>
-          <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-off" checked={level === 'off'} onChange={() => setLevel('off')} />
-          <b>Выключено</b>
-          <span>по умолчанию</span>
-        </label>
-        <label className={level === 'read' ? 'opt on' : 'opt'}>
-          <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-read" checked={level === 'read'} onChange={() => setLevel('read')} />
-          <b>Только чтение</b>
-          <span>поиск и чтение файлов</span>
-        </label>
-        <label className={level === 'propose' ? 'opt on' : 'opt'}>
-          <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-propose" checked={level === 'propose'} onChange={() => setLevel('propose')} />
-          <b>Чтение и правки</b>
-          <span>бот предлагает, применяете вы</span>
-        </label>
-      </fieldset>
-      <div className="off-area">
-        <label className="check">
-          <input data-testid="bot-tools-allow" type="checkbox" checked={allow} onChange={(event) => setAllow(event.target.checked)} />
-          Разрешить инструментам читать эту папку
-        </label>
-        <label className="check">
-          <input data-testid="bot-tools-ignore" type="checkbox" checked={ignore} onChange={(event) => setIgnore(event.target.checked)} />
-          Не читать файлы из .gitignore
-        </label>
-        <div className="seg" data-testid="bot-apply-mode">
-          <label className={mode === 'git' ? 'on' : ''}>
-            <input type="radio" name={`apply-${props.bot.id}`} data-testid="bot-apply-git" checked={mode === 'git'} disabled={!folderGit} onChange={() => setMode('git')} />
-            Git-ветка
-          </label>
-          <label className={mode === 'files' ? 'on' : ''}>
-            <input type="radio" name={`apply-${props.bot.id}`} data-testid="bot-apply-files" checked={mode === 'files'} onChange={() => setMode('files')} />
-            Снимок файлов
-          </label>
+    <div className="modal-bg pm-center">
+      <div className="set" role="dialog" aria-modal="true" aria-label="Настройки бота" data-testid="bot-settings-dialog">
+        <div className="set-h">
+          <div>
+            <div className="k">{props.bot.name} · {props.bot.role}</div>
+            <h2>Настройки</h2>
+          </div>
+          <button type="button" className="x" onClick={props.onClose} aria-label="Закрыть настройки">×</button>
         </div>
-        {folderGit ? null : <p className="sub" data-testid="bot-apply-why">В папке нет git — ветка недоступна, останется снимок.</p>}
+        <div className="set-tabs">
+          <button type="button" className={tab === 'main' ? 'on' : ''} onClick={() => setTab('main')}>Основное</button>
+          <button type="button" className={tab === 'model' ? 'on' : ''} onClick={() => setTab('model')}>Модель и ключ</button>
+          <button type="button" className={tab === 'access' ? 'on' : ''} onClick={() => setTab('access')}>Доступ к проекту</button>
+          <button type="button" className={tab === 'limits' ? 'on' : ''} onClick={() => setTab('limits')}>Лимиты</button>
+        </div>
+        <div className="set-b">
+          {tab === 'main' ? <p className="sub">Имя, роль и транспорт задаются при создании бота. Здесь их не переписываем.</p> : null}
+          {tab === 'model' ? <p className="sub">Ключ провайдера хранится вне конфига, в переменной окружения. Модель меняется в конфиге, не в этом окне.</p> : null}
+          {tab === 'limits' ? <p className="sub">Лимиты ответа и пробуждений — общие на проект, шаг «Экономия» мастера.</p> : null}
+          {tab === 'access' && !api ? (
+            <div>
+              <div className="grok-note" data-testid="bot-tools-grok">
+                <span className="av" aria-hidden="true" />
+                <div>
+                  <b>У Grok нет доступа к папке</b>
+                  <p>Он работает в своём окне. Файлы проекта ему не отдаются.</p>
+                  <ul>
+                    <li>Инструменты чтения и предложений только у своего бота по API.</li>
+                    <li>Ключ и модель Grok сюда не переносятся.</li>
+                  </ul>
+                </div>
+              </div>
+              <div className="alert info"><b>Создайте своего бота по API</b>, если нужен доступ к файлам проекта.</div>
+            </div>
+          ) : null}
+          {tab === 'access' && api ? (
+            <div data-testid="bot-tools" className={level === 'off' ? 'access off' : 'access'}>
+              <div className="rcards" data-testid="bot-tools-level">
+                <label className={level === 'off' ? 'rcard on' : 'rcard'}>
+                  <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-off" checked={level === 'off'} onChange={() => setLevel('off')} />
+                  <b>Выключено</b>
+                  <small>бот не видит файлы</small>
+                  <span className="def">по умолчанию</span>
+                </label>
+                <label className={level === 'read' ? 'rcard on' : 'rcard'}>
+                  <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-read" checked={level === 'read'} onChange={() => { setLevel('read'); setAllow(true) }} />
+                  <b>Только чтение</b>
+                  <small>поиск и чтение файлов</small>
+                </label>
+                <label className={level === 'propose' ? 'rcard on' : 'rcard'}>
+                  <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-propose" checked={level === 'propose'} onChange={() => { setLevel('propose'); setAllow(true) }} />
+                  <b>Чтение и правки</b>
+                  <small>бот предлагает, применяете вы</small>
+                </label>
+              </div>
+              {level === 'off' ? <p className="hint-off">Пока выключено, переключатели ниже не действуют.</p> : null}
+              <div className={level === 'off' ? 'off-area' : undefined}>
+                <label className="sw">
+                  <input data-testid="bot-tools-allow" type="checkbox" checked={allow} onChange={(event) => setAllow(event.target.checked)} />
+                  Разрешить инструментам читать эту папку
+                </label>
+                <label className="sw">
+                  <input data-testid="bot-tools-ignore" type="checkbox" checked={ignore} onChange={(event) => setIgnore(event.target.checked)} />
+                  Не читать файлы из .gitignore
+                </label>
+                <div className="seg" data-testid="bot-apply-mode">
+                  <label className={mode === 'git' ? 'on' : ''}>
+                    <input type="radio" name={`apply-${props.bot.id}`} data-testid="bot-apply-git" checked={mode === 'git'} disabled={!folderGit} onChange={() => setMode('git')} />
+                    Git-ветка {folderGit ? <span className="rec">реком.</span> : null}
+                  </label>
+                  <label className={mode === 'files' ? 'on' : ''}>
+                    <input type="radio" name={`apply-${props.bot.id}`} data-testid="bot-apply-files" checked={mode === 'files'} onChange={() => setMode('files')} />
+                    Снимок файлов
+                  </label>
+                </div>
+                {folderGit ? null : <p className="sub" data-testid="bot-apply-why">В папке нет git — ветка недоступна, останется снимок.</p>}
+              </div>
+              <div className="alert warn"><b>Файлы уходят провайдеру</b> этого бота. .env и ключи лучше не класть в папку или закрыть их .gitignore.</div>
+              <div className="alert info">Защиты те же: без удаления и переименования, не больше 20 файлов, не больше половины файла.</div>
+            </div>
+          ) : null}
+        </div>
+        <div className="set-f">
+          <span className="sub">Изменения действуют со следующего хода бота</span>
+          <span className="sp" />
+          <button type="button" className="btn" onClick={props.onClose}>Отмена</button>
+          {api ? <button type="button" className="btn primary" data-testid="bot-tools-save" disabled={busy} onClick={() => void save()}>Сохранить</button> : null}
+          {note ? <p className="sub" data-testid="bot-tools-note">{note}</p> : null}
+        </div>
       </div>
-      <button type="button" className="btn" data-testid="bot-tools-save" disabled={busy} onClick={() => void save()}>Записать</button>
-      {note ? <p className="sub" data-testid="bot-tools-note">{note}</p> : null}
     </div>
   )
 }
@@ -310,6 +360,7 @@ export function Dashboard() {
   const [toast, setToast] = useState<string | null>(null)
   const [revertOpen, setRevertOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [settingsOn, setSettingsOn] = useState(false)
 
   useEffect(() => {
     const saved = window.localStorage.getItem('tinybots-theme')
@@ -444,7 +495,7 @@ export function Dashboard() {
   const merged = requests.filter((item) => item.state === 'merged')
   const openMr = requests.find((item) => item.id === mergeId) ?? null
 
-  async function askBot(item: ProposalView) {
+  async function askBot(item: ProposalView, kind: 'update' | 'write' = 'update') {
     const target = chats.find((row) => row.lead_id === item.bot_id)
     if (!csrf || !target) {
       setToast('Нет чата этого бота, попросить некого.')
@@ -457,7 +508,9 @@ export function Dashboard() {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         body: JSON.stringify({
           bot: item.bot_id,
-          text: `Предложение ${item.id} не применилось: проект изменился. Обнови правку новым предложением. Старое не применяй.`,
+          text: kind === 'write'
+            ? `По поводу предложения ${item.id}. Старое не применяй.`
+            : `Предложение ${item.id} не применилось: проект изменился. Обнови правку новым предложением. Старое не применяй.`,
           project: item.project_id,
           chat: target.id,
         }),
@@ -599,7 +652,12 @@ export function Dashboard() {
               data-testid={`chat-${item.id}`}
               onClick={() => setChatId(item.id)}
             >
-              <b>{item.title}</b>
+              <span className="clist">
+                <b>{item.title}</b>
+                {proposalBadgeCount(proposals.filter((row) => row.bot_id === item.lead_id)) > 0 ? (
+                  <span className="bdg">{proposalBadgeCount(proposals.filter((row) => row.bot_id === item.lead_id))}</span>
+                ) : null}
+              </span>
               <i>{item.lead_name}</i>
             </button>
           ))}
@@ -628,13 +686,15 @@ export function Dashboard() {
               title={awaiting.length === 0 ? 'Нет запросов на мерж' : 'Открыть запросы'}
               onClick={() => setMergeId(awaiting[0]?.id ?? null)}
             >
-              Запросы на мерж ({awaiting.length})
+              Запросы <span className="bdg">{awaiting.length}</span>
             </button>
-            {awaiting.length === 0 ? <span data-testid="merge-requests-reason">Нет запросов на мерж</span> : null}
+            <span className="sr" data-testid="merge-requests-reason">{awaiting.length === 0 ? 'Нет запросов на мерж' : 'Открыть запросы'}</span>
             <button
               type="button"
-              className="btn"
+              className="btn icon"
               data-testid="theme-toggle"
+              title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+              aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
               onClick={() => {
                 const next = theme === 'dark' ? 'light' : 'dark'
                 setTheme(next)
@@ -642,23 +702,33 @@ export function Dashboard() {
                 window.localStorage.setItem('tinybots-theme', next)
               }}
             >
-              {theme === 'dark' ? 'Светлая' : 'Тёмная'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" /></svg>
             </button>
             {storageWarning ? <p className="warn-box" data-testid="storage-warning">{storageWarning}</p> : null}
             <button
               type="button"
-              className="btn"
+              className="btn icon"
               data-testid="revert"
               disabled={merged.length === 0}
               title={merged.length === 0 ? 'Нет смерженного запроса, откатывать нечего' : 'Откатить смерженный запрос'}
+              aria-label="Откатить"
               onClick={() => setRevertOpen(true)}
             >
-              Откатить
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 8h11a5 5 0 010 10H8M4 8l4-4M4 8l4 4" /></svg>
             </button>
-            {merged.length === 0 ? <span data-testid="revert-reason">Нет смерженного запроса, откатывать нечего</span> : null}
-            <span data-testid="merge-status">{requests.length === 0 ? 'запросов нет' : requests.map((item) => `${item.id}:${item.state}`).join(' ')}</span>
-            <span data-testid="sync-label">{data.synced_label ? `данные на ${data.synced_label}` : 'данные на —'}</span>
-            <button type="button" className="btn" data-testid="sync" onClick={() => void synchronize()}>Синхронизировать</button>
+            <span className="sr" data-testid="revert-reason">{merged.length === 0 ? 'Нет смерженного запроса, откатывать нечего' : 'Откатить смерженный запрос'}</span>
+            <span className="sr" data-testid="merge-status">{requests.length === 0 ? 'запросов нет' : requests.map((item) => `${item.id}:${item.state}`).join(' ')}</span>
+            <span className="sr" data-testid="sync-label">{data.synced_label ? `данные на ${data.synced_label}` : 'данные на —'}</span>
+            <button
+              type="button"
+              className="btn icon"
+              data-testid="sync"
+              title={data.synced_label ? `Синхронизировать · данные на ${data.synced_label}` : 'Синхронизировать'}
+              aria-label="Синхронизировать"
+              onClick={() => void synchronize()}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 12a8 8 0 0113-6l2-2v6h-6l2-2a5 5 0 00-8 2M20 12a8 8 0 01-13 6l-2 2v-6h6l-2 2a5 5 0 008-2" /></svg>
+            </button>
           </div>
           {requests.filter((item) => item.error).map((item) => (
             <p key={item.id} className="merge-error" data-testid="merge-fault" data-mr={item.id}>{item.id}: {item.error}</p>
@@ -721,17 +791,8 @@ export function Dashboard() {
                     {noteOf(data, selected.id)?.question_to_owner ? (
                       <p className="question">{noteOf(data, selected.id)?.question_to_owner}</p>
                     ) : null}
-                    {selected.transport === 'api' && project ? (
-                      <BotTools
-                        key={`${selected.id}:${project.id}`}
-                        bot={selected}
-                        project={project}
-                        csrf={csrf}
-                        onDone={() => setTick((n) => n + 1)}
-                      />
-                    ) : null}
-                    {selected.transport !== 'api' ? (
-                      <p className="sub" data-testid="bot-tools-grok">У бота Grok нет доступа к папке: он работает в своём окне, файлы проекта ему не отдаются.</p>
+                    {project ? (
+                      <button type="button" className="btn" data-testid="bot-settings" onClick={() => setSettingsOn(true)}>Настройки</button>
                     ) : null}
                     <h4>Задачи</h4>
                     <ul className="plain">
@@ -820,10 +881,22 @@ export function Dashboard() {
                     title={badge > 0 ? 'Открыть предложения' : 'Нет предложений'}
                     onClick={() => setListOpen(true)}
                   >
-                    Предложения <b>{badge}</b>
+                    {badge > 0 ? (
+                      <>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M7 3h7l5 5v13H7zM14 3v5h5" /></svg>
+                        Предложения
+                        <span className="n">{badge}</span>
+                      </>
+                    ) : 'Нет предложений'}
                   </button>
                 </div>
                 <p className="sub">главный {chat.lead_name}</p>
+                {badge > 0 && threadItems[0] ? (
+                  <button type="button" className="pcard" onClick={() => { setNotice(null); setProposalId(threadItems[0]?.id ?? null) }}>
+                    <b>Предложение #{threadItems[0].id.slice(0, 7)} · {threadItems[0].files.length} файлов</b>
+                    <span>Открыть</span>
+                  </button>
+                ) : null}
                 {project ? (
                   <BriefPanel
                     key={chat.id}
@@ -863,11 +936,22 @@ export function Dashboard() {
           </aside>
         </div>
       </div>
+      {settingsOn && selected && project ? (
+        <BotTools
+          key={`${selected.id}:${project.id}`}
+          bot={selected}
+          project={project}
+          csrf={csrf}
+          onDone={() => setTick((n) => n + 1)}
+          onClose={() => setSettingsOn(false)}
+        />
+      ) : null}
       {toast ? <p className="toast" data-testid="toast" role="status">{toast}</p> : null}
       {openProposal ? (
         <ProposalModal
           item={openProposal}
           botName={data.bots.find((bot) => bot.id === openProposal.bot_id)?.name ?? openProposal.bot_id}
+          ownerName={data.owner.name}
           projectTitle={project?.title ?? openProposal.project_id}
           busy={busy}
           waiting={busy}
@@ -880,7 +964,8 @@ export function Dashboard() {
           onApply={() => void actProposal('apply', openProposal)}
           onReject={() => void actProposal('reject', openProposal)}
           onRevert={() => void actProposal('revert', openProposal)}
-          onAsk={() => void askBot(openProposal)}
+          onAsk={() => void askBot(openProposal, 'update')}
+          onWrite={() => void askBot(openProposal, 'write')}
         />
       ) : null}
       {listOpen && chat ? (

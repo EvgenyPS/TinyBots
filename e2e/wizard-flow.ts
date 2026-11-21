@@ -29,9 +29,9 @@ export const sample: WizardSample = {
 
 export async function fillUntilSource(page: Page, data: WizardSample): Promise<void> {
   await expect(page.getByTestId('setup-wizard')).toBeVisible()
-  await expect(page.getByTestId('setup-step')).toHaveCount(7)
+  await expect(page.getByTestId('setup-step')).toHaveCount(8)
   const steps = page.getByTestId('setup-steps')
-  await expect(steps).toHaveAttribute('data-steps', '7')
+  await expect(steps).toHaveAttribute('data-steps', '8')
   expect(Number(await steps.getAttribute('data-steps'))).toBeLessThanOrEqual(10)
   await page.getByTestId('owner-name').fill(data.owner)
   await page.getByTestId('setup-next').click()
@@ -50,6 +50,7 @@ export async function passWizard(page: Page, data: WizardSample): Promise<void> 
   await page.getByTestId('source-path').fill(data.source)
   await page.getByTestId('source-check').click()
   await expect(page.getByTestId('git-warning')).toHaveText('вкладка Git будет скрыта')
+  await page.getByTestId('setup-next').click()
   await page.getByTestId('setup-next').click()
   await page.getByTestId('setup-next').click()
   await page.getByTestId('setup-save').click()

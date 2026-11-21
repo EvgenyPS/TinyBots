@@ -130,7 +130,7 @@ test('I17 предложение, модалка, применение и отк
     await expect(page.getByTestId('proposal-title')).toContainText('Предложение #')
     await expect(page.getByTestId('proposal-summary')).toContainText('<script>alert(1)</script>')
     await expect(page.getByTestId('proposal-dialog')).toContainText('со слов бота')
-    await expect(page.getByTestId('exec-package.json')).toContainText('исполняемый/CI')
+    await expect(page.getByTestId('exec-package.json')).toContainText('исполняется при сборке')
     expect(await page.evaluate(() => (window as unknown as { __alerted?: boolean }).__alerted)).toBe(false)
     const before = await page.getByTestId('proposal-diff').boundingBox()
     await page.getByTestId('proposal-apply').click()

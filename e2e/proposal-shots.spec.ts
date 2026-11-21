@@ -36,6 +36,11 @@ async function theme(page: Page, name: 'dark' | 'light'): Promise<void> {
 }
 
 async function shot(page: Page, file: string): Promise<void> {
+  const toast = page.getByTestId('proposal-toast')
+  const confirm = page.getByTestId('proposal-revert-confirm')
+  if (await toast.count() > 0 && await toast.isVisible() && await confirm.count() === 0) {
+    await toast.hover({ timeout: 2_000 }).catch(() => undefined)
+  }
   await theme(page, 'dark')
   await page.screenshot({ path: path.join(OUT, 'dark', file), animations: 'disabled' })
   await theme(page, 'light')
@@ -180,11 +185,14 @@ test('состояния 01–07 и 09', async ({ page }) => {
     await shot(page, '07b-conflict-collapsed.png')
     await page.getByTestId('proposal-close').click()
     await page.getByTestId('orbit-bot-nora').click()
+    await page.getByTestId('bot-settings').click()
     await expect(page.getByTestId('bot-tools')).toBeVisible()
-    await shot(page, '09-settings.png')
+    await shot(page, '09-bot-settings.png')
+    await page.getByLabel('Закрыть настройки').click()
     await page.getByTestId('orbit-bot-bitk').click()
+    await page.getByTestId('bot-settings').click()
     await expect(page.getByTestId('bot-tools-grok')).toBeVisible()
-    await shot(page, '09b-settings-grok.png')
+    await shot(page, '09b-bot-settings-grok.png')
   } finally {
     await server.stop()
     await new Promise<void>((resolve) => mock.close(() => resolve()))
@@ -322,6 +330,7 @@ test('мастер 08', async ({ page }) => {
     await page.getByTestId('source-path').fill('app')
     await page.getByTestId('source-check').click()
     await expect(page.getByTestId('git-ok')).toBeVisible()
+    await page.getByTestId('setup-next').click()
     await shot(page, '08b-wizard-off.png')
     await page.getByTestId('wiz-tools-read-0').check()
     await shot(page, '08c-wizard-read.png')

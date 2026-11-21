@@ -93,8 +93,8 @@ function sampleConfig(title: string): Record<string, unknown> {
   }
 }
 
-test('шагов семь, и это не больше потолка', () => {
-  expect(SETUP_STEPS).toHaveLength(7)
+test('шагов восемь, и это не больше потолка', () => {
+  expect(SETUP_STEPS).toHaveLength(8)
   expect(SETUP_STEPS.length).toBeLessThanOrEqual(SETUP_STEP_LIMIT)
   expect(SETUP_STEP_LIMIT).toBe(10)
   const doc = readFileSync(path.join(repoRoot(), 'docs', 'setup-manual.md'), 'utf8')
@@ -359,7 +359,7 @@ test('HTTP: порт, токен, схема и отказ затереть фа
     expect(opened.status).toBe(200)
     const info = opened.json as { csrf?: string; required?: boolean; steps?: unknown[] }
     expect(info.required).toBe(true)
-    expect(info.steps).toHaveLength(7)
+    expect(info.steps).toHaveLength(8)
     const csrf = info.csrf ?? ''
     expect(csrf.length).toBeGreaterThan(10)
 

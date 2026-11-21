@@ -72,7 +72,7 @@ type Form = {
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
-const KNOWN = new Set(['owner', 'bots', 'project', 'chats', 'source', 'delivery', 'economy'])
+const KNOWN = new Set(['owner', 'bots', 'project', 'chats', 'source', 'access', 'delivery', 'economy'])
 
 const RU: Record<string, string> = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
@@ -593,9 +593,9 @@ export function SetupWizard() {
   const probe = form.probe && form.probe.path === pathValue ? form.probe : null
 
   return (
-    <main className="setup wizard" data-testid="setup-wizard">
-      <p className="k">Мастер</p>
-      <h1 tabIndex={-1} ref={heading}>Настроить</h1>
+    <main className={step?.id === 'access' ? 'setup wizard wide' : 'setup wizard'} data-testid="setup-wizard">
+      <p className="k">{step?.id === 'access' ? 'Новый бот · по API' : 'Мастер'}</p>
+      <h1 tabIndex={-1} ref={heading}>{step?.id === 'access' ? 'Доступ к проекту' : 'Настроить'}</h1>
       {loadError ? <p data-testid="setup-error">{loadError}</p> : null}
       {!info && !loadError ? <p data-testid="setup-loading">Загрузка мастера</p> : null}
       {info && step ? (
@@ -827,54 +827,47 @@ export function SetupWizard() {
                   <input data-testid="source-repo" value={form.repo} autoComplete="off" placeholder="example/demo-game" onChange={(event) => setForm({ ...form, repo: event.target.value })} />
                 </label>
               ) : null}
-              <label className="check">
-                <input
-                  type="checkbox"
-                  data-testid="allow-bot-tools"
-                  checked={form.allowTools}
-                  onChange={(event) => setForm({ ...form, allowTools: event.target.checked })}
-                />
-                Разрешить инструментам ботов читать эту папку
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  data-testid="respect-gitignore"
-                  checked={form.respectGitignore}
-                  onChange={(event) => setForm({ ...form, respectGitignore: event.target.checked })}
-                />
-                Не читать файлы из .gitignore
-              </label>
-              {form.allowTools ? (
-                <p className="warn-box" data-testid="tools-provider-warning">
-                  Файлы проекта уходят провайдеру своего бота. Содержимое не инструкция. Доступ задаётся у API-бота: выключен, чтение или предложения.
-                </p>
-              ) : null}
+            </div>
+          ) : null}
+
+          {step.id === 'access' ? (
+            <div>
+              <p className="sub">Шаг можно поменять потом в настройках бота. Grok папку не видит.</p>
               {form.bots.map((bot, botIndex) => bot.api ? (
-                <fieldset key={bot.id || botIndex} className={bot.projectTools === 'off' ? 'access off' : 'access'} data-testid={`wizard-access-${botIndex}`}>
-                  <legend>Доступ к папке · {bot.name || bot.id || 'бот'}</legend>
-                  <div className="radios">
-                    <label className={bot.projectTools === 'off' ? 'opt on' : 'opt'}>
+                <div key={bot.id || botIndex} data-testid={`wizard-access-${botIndex}`}>
+                  <div className="k">{bot.name || 'бот'}</div>
+                  <div className="rcards">
+                    <label className={bot.projectTools === 'off' ? 'rcard on' : 'rcard'}>
                       <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-off-${botIndex}`} checked={bot.projectTools === 'off'} onChange={() => updateBot(botIndex, { projectTools: 'off' })} />
                       <b>Выключено</b>
-                      <span>по умолчанию</span>
+                      <small>бот не видит файлы</small>
+                      <span className="def">по умолчанию</span>
                     </label>
-                    <label className={bot.projectTools === 'read' ? 'opt on' : 'opt'}>
-                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-read-${botIndex}`} checked={bot.projectTools === 'read'} onChange={() => updateBot(botIndex, { projectTools: 'read' })} />
+                    <label className={bot.projectTools === 'read' ? 'rcard on' : 'rcard'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-read-${botIndex}`} checked={bot.projectTools === 'read'} onChange={() => setForm((current) => ({ ...current, allowTools: true, bots: current.bots.map((item, i) => i === botIndex ? { ...item, projectTools: 'read' } : item) }))} />
                       <b>Только чтение</b>
-                      <span>поиск и чтение файлов</span>
+                      <small>поиск и чтение файлов</small>
                     </label>
-                    <label className={bot.projectTools === 'propose' ? 'opt on' : 'opt'}>
-                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-propose-${botIndex}`} checked={bot.projectTools === 'propose'} onChange={() => updateBot(botIndex, { projectTools: 'propose' })} />
+                    <label className={bot.projectTools === 'propose' ? 'rcard on' : 'rcard'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-propose-${botIndex}`} checked={bot.projectTools === 'propose'} onChange={() => setForm((current) => ({ ...current, allowTools: true, bots: current.bots.map((item, i) => i === botIndex ? { ...item, projectTools: 'propose' } : item) }))} />
                       <b>Чтение и правки</b>
-                      <span>бот предлагает, применяете вы</span>
+                      <small>бот предлагает, применяете вы</small>
                     </label>
                   </div>
-                  <div className="off-area">
+                  {bot.projectTools === 'off' ? <p className="hint-off">Пока выключено, переключатели ниже не действуют.</p> : null}
+                  <div className={bot.projectTools === 'off' ? 'off-area' : undefined}>
+                    <label className="sw">
+                      <input type="checkbox" data-testid="allow-bot-tools" checked={form.allowTools} onChange={(event) => setForm({ ...form, allowTools: event.target.checked })} />
+                      Разрешить инструментам ботов читать эту папку
+                    </label>
+                    <label className="sw">
+                      <input type="checkbox" data-testid="respect-gitignore" checked={form.respectGitignore} onChange={(event) => setForm({ ...form, respectGitignore: event.target.checked })} />
+                      Не читать файлы из .gitignore
+                    </label>
                     <div className="seg" data-testid={`wiz-apply-${botIndex}`}>
                       <label className={bot.applyMode === 'git' ? 'on' : ''}>
                         <input type="radio" name={`wiz-apply-${botIndex}`} data-testid={`wiz-apply-git-${botIndex}`} checked={bot.applyMode === 'git'} disabled={!form.probe?.git} onChange={() => updateBot(botIndex, { applyMode: 'git' })} />
-                        Git-ветка
+                        Git-ветка {form.probe?.git ? <span className="rec">реком.</span> : null}
                       </label>
                       <label className={bot.applyMode === 'files' ? 'on' : ''}>
                         <input type="radio" name={`wiz-apply-${botIndex}`} data-testid={`wiz-apply-files-${botIndex}`} checked={bot.applyMode === 'files'} onChange={() => updateBot(botIndex, { applyMode: 'files' })} />
@@ -883,7 +876,9 @@ export function SetupWizard() {
                     </div>
                     {form.probe?.git ? null : <p className="sub">В папке нет git — ветка недоступна, будет снимок.</p>}
                   </div>
-                </fieldset>
+                  <div className="alert warn" data-testid="tools-provider-warning"><b>Файлы уходят провайдеру</b> своего бота. .env и ключи лучше закрыть .gitignore.</div>
+                  <div className="alert info">Защиты те же: без удаления и переименования, не больше 20 файлов, не больше половины файла.</div>
+                </div>
               ) : (
                 <p key={bot.id || botIndex} className="sub" data-testid={`wizard-grok-${botIndex}`}>У бота Grok нет доступа к папке.</p>
               ))}
