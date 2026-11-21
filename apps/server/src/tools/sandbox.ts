@@ -144,8 +144,14 @@ async function diskName(parent: string, segment: string): Promise<string | null>
     throw error
   }
   const dir = await opendir(parent)
+  const folded = segment.toLowerCase()
   try {
     for await (const entry of dir) {
+      // Точное имя (на Windows ещё и регистр) не требует lstat каждого соседа.
+      // Иначе обход широкого каталога делает lstat на каждую пару. Ino остаётся для 8.3 и другого написания.
+      if (entry.name === segment || (process.platform === 'win32' && entry.name.toLowerCase() === folded)) {
+        return entry.name
+      }
       let ent: Awaited<ReturnType<typeof lstat>>
       try {
         ent = await lstat(path.join(parent, entry.name), { bigint: true })
