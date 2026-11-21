@@ -71,6 +71,7 @@ function schemaFor(rel: string): ZodType | 'skip' {
   const setTask = /^sets\/[^/]+\/data\/tasks\//.test(rel)
   const setStatus = /^sets\/[^/]+\/data\/status\//.test(rel)
   const setSync = /^sets\/[^/]+\/data\/sync\//.test(rel)
+  const setMerge = /^sets\/[^/]+\/data\/merge_requests\//.test(rel)
   const setConfig = /^sets\/[^/]+\/config\.yaml$/.test(rel)
   if (rel.startsWith('data/tasks/') || setTask) {
     return taskSchema
@@ -78,7 +79,7 @@ function schemaFor(rel: string): ZodType | 'skip' {
   if (rel.startsWith('data/status/') || setStatus) {
     return statusSchema
   }
-  if (rel.startsWith('data/merge_requests/')) {
+  if (rel.startsWith('data/merge_requests/') || setMerge) {
     return mergeRequestSchema
   }
   if (rel.startsWith('data/outbox/decisions/')) {

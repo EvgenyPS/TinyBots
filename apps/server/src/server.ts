@@ -3,8 +3,10 @@
  * НАЗНАЧЕНИЕ: HTTP пульта на 127.0.0.1.
  * ВХОД: config.yaml (или демо-набор) и сборка apps/web/dist, если она есть.
  * ВЫХОД: /health, /api/bots, пульт, Git, дерево файлов, markdown и страница.
- * Чужой Host, Origin или чужой порт — 403. Запись — POST /api/setup и решения по мержу:
- * тот же requestAllowed, что и у чтения, плюс непустой Origin и токен.
+ * Чужой Host, Origin или чужой порт — 403. Запись — POST /api/setup, решения по мержу,
+ * POST /api/chat и POST /api/brief/send: тот же requestAllowed, плюс непустой Origin и токен.
+ * На всём /api Sec-Fetch-Site: только same-origin, none или отсутствие заголовка.
+ * same-site и cross-site — 403 до сети, чтобы чужая страница не тратила ключ.
  * Нет заголовка Origin или он пустой — чтение пускает (так открывают страницу), запись нет.
  * Исключение: GET /api/setup/source читает диск и запускает git.
  * Токен обязателен до этого. Чужой Origin, строка null и чужой порт — 403.
@@ -33,7 +35,8 @@ import { FALLBACK_HTML } from './fallback-html.js'
 import { briefStatus, loadBrief } from './briefs/load.js'
 import { readProjectDoc, readProjectTree } from './files/index.js'
 import { readGitSummary } from './git/index.js'
-import { requestAllowed } from './guard.js'
+import { fetchSiteAllowed, requestAllowed } from './guard.js'
+import { postBotChat, postBriefSend, readBotChat } from './llm/http.js'
 import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
 import { postDecision, postSync } from './merge/http.js'
 import type { ConfigFailure } from './config/load.js'
@@ -68,6 +71,8 @@ function isWrite(method: string, pathname: string): boolean {
     pathname === '/api/setup'
     || pathname === '/api/merge/decide'
     || pathname === '/api/sync/apply'
+    || pathname === '/api/chat'
+    || pathname === '/api/brief/send'
   )
 }
 
@@ -127,6 +132,10 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
       c.header('X-Frame-Options', 'DENY')
       c.header('Content-Security-Policy', "frame-ancestors 'none'")
     }
+    // До записи и до GitHub/модели: same-site с другого порта тот же 127.0.0.1 тоже 403.
+    if ((pathname === '/api' || pathname.startsWith('/api/')) && !fetchSiteAllowed(c.req.header('sec-fetch-site'))) {
+      return c.json({ error: 'forbidden_host' }, 403)
+    }
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
       if (!isWrite(c.req.method, pathname)) {
         return c.json({ error: 'writes_not_ready' }, 405)
@@ -139,11 +148,6 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
       return
     }
     if (!requestAllowed(host, origin, boundPort.current)) {
-      return c.json({ error: 'forbidden_host' }, 403)
-    }
-    // Чужая страница может дернуть GET без CORS и потратить лимит токена GitHub.
-    // Своя страница шлёт same-origin или не шлёт заголовок вовсе. Других таких GET нет.
-    if (pathname === '/api/git' && c.req.header('sec-fetch-site')?.trim().toLowerCase() === 'cross-site') {
       return c.json({ error: 'forbidden_host' }, 403)
     }
     await next()
@@ -239,6 +243,12 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     return c.json(sent.body, sent.status)
   })
 
+  app.get('/api/chat', (c) => {
+    c.header('Cache-Control', 'no-store')
+    const sent = readBotChat(root, options, c.req.query('bot') ?? '')
+    return c.json(sent.body, sent.status)
+  })
+
   app.get('/api/brief', (c) => {
     const body = loadBrief(root, options, {
       project: c.req.query('project') ?? '',
@@ -307,6 +317,44 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
       return c.json({ error: 'json' }, 400)
     }
     const saved = await setupQueue(() => postDecision(root, options, payload))
+    return c.json(saved.body, saved.status)
+  })
+
+  app.post('/api/chat', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    if (!tokensMatch(csrf, c.req.header('x-csrf-token'))) {
+      return c.json({ error: 'csrf' }, 403)
+    }
+    const raw = await c.req.text()
+    if (raw.length > SETUP_BODY_LIMIT) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    let payload: unknown
+    try {
+      payload = JSON.parse(raw) as unknown
+    } catch {
+      return c.json({ error: 'json' }, 400)
+    }
+    const saved = await setupQueue(() => postBotChat(root, options, payload))
+    return c.json(saved.body, saved.status)
+  })
+
+  app.post('/api/brief/send', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    if (!tokensMatch(csrf, c.req.header('x-csrf-token'))) {
+      return c.json({ error: 'csrf' }, 403)
+    }
+    const raw = await c.req.text()
+    if (raw.length > SETUP_BODY_LIMIT) {
+      return c.json({ error: 'too_large' }, 413)
+    }
+    let payload: unknown
+    try {
+      payload = JSON.parse(raw) as unknown
+    } catch {
+      return c.json({ error: 'json' }, 400)
+    }
+    const saved = await setupQueue(() => postBriefSend(root, options, payload))
     return c.json(saved.body, saved.status)
   })
 

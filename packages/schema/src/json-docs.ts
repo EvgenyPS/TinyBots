@@ -7,6 +7,8 @@
  */
 
 import { toJSONSchema, type ZodType } from 'zod'
+import { apiUsageSchema } from './api-usage.js'
+import { chatLogSchema } from './chat-log.js'
 import { configSchema } from './config.js'
 import { mergeRequestSchema } from './merge.js'
 import { decisionSchema, feedbackSchema } from './outbox.js'
@@ -14,6 +16,7 @@ import { statusSchema } from './status.js'
 import { syncManifestSchema } from './sync.js'
 import { queueSchema, taskSchema } from './task.js'
 import { usageSchema } from './usage.js'
+import { wakeCountSchema } from './wake.js'
 
 export interface JsonDocument {
   file: string
@@ -30,11 +33,15 @@ const DOCUMENTS: ReadonlyArray<{ file: string; id: string; schema: ZodType }> = 
   { file: 'usage.schema.json', id: 'https://tinybots.local/schema/usage.schema.json', schema: usageSchema },
   { file: 'config.schema.json', id: 'https://tinybots.local/schema/config.schema.json', schema: configSchema },
   { file: 'sync-manifest.schema.json', id: 'https://tinybots.local/schema/sync-manifest.schema.json', schema: syncManifestSchema },
+  { file: 'chat-log.schema.json', id: 'https://tinybots.local/schema/chat-log.schema.json', schema: chatLogSchema },
+  { file: 'api-usage.schema.json', id: 'https://tinybots.local/schema/api-usage.schema.json', schema: apiUsageSchema },
+  { file: 'wake-count.schema.json', id: 'https://tinybots.local/schema/wake-count.schema.json', schema: wakeCountSchema },
 ]
 
 export function jsonDocuments(): JsonDocument[] {
   return DOCUMENTS.map((item) => {
-    const raw = toJSONSchema(item.schema, { target: 'draft-07', reused: 'inline' })
+    // input: пресет deepseek/qwen дописывает base_url уже после разбора YAML.
+    const raw = toJSONSchema(item.schema, { target: 'draft-07', reused: 'inline', io: 'input' })
     const body = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>
     return {
       file: item.file,

@@ -146,6 +146,28 @@
 
 ---
 
+## H. Свои боты на ключах
+
+Бот Grok не меняется: полей модели нет, буфер и `grokbot://` на месте. Ключ своего бота живёт в `.env`. Тесты и CI вызывают только локальный мок OpenAI-совместимого API, без настоящих ключей и без сети к провайдеру.
+
+| ID | Критерий | Как проверяем |
+|---|---|---|
+| H1 | Создание: имя, роль, инструкции, провайдер, модель, `base_url`. Бот в рейле, орбите и `/api/roster`. В конфиге только `api_key_env` по шаблону `^[A-Z][A-Z0-9_]*_API_KEY$`: `DEEPSEEK_API_KEY` проходит, `GITHUB_TOKEN`, `PATH` и `GITHUB_API_BASE` отвергаются. Пресет deepseek/qwen без адреса подставляет официальный HTTPS | `packages/schema/src/bots.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H2 | Поля модели у ботов Grok не появляются. Буфер и `grokbot://` без регрессии на `demo/sets/primary` (B5/B10) | `apps/server/src/launcher/api.test.ts`, `e2e/b5-brief.spec.ts` |
+| H3 | Смена провайдера или модели действует со следующего сообщения и брифа: поле `model` во втором запросе к моку | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H4 | Ключ только в `.env`. Имя вне шаблона отвергается. Нет ключа в конфиге, `data_dir`, бандле, ответах API, ошибках, логах и git. Промпты и ответы не в журнале процесса. Ключ в реплике и в ответе становится `[secret]` и в ответе API, и в `chats/<bot>.json` | `packages/schema/src/bots.test.ts`, `apps/server/src/llm/client.test.ts`, `apps/server/src/llm/flow.test.ts`, gitleaks |
+| H5 | Только локальный мок. В тестах и в CI нет реальных вызовов и ключей | `e2e/h-api-bots.spec.ts`, `apps/server/src/llm/client.test.ts` |
+| H6 | SSRF: таблица URL (IPv6, числовые IPv4, `0.0.0.0`, `::1` вне исключения, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`, `::/96`, `fec0::/10`, `::ffff:0:0:0/96`). `redirect: 'manual'`: любой 3xx — ошибка, цель редиректа не вызывается. Адреса после DNS проходят те же правила | `packages/schema/src/base-url.test.ts`, `apps/server/src/llm/client.test.ts` |
+| H7 | 401 без повтора. 429 — не больше 3 повторов (всего ≤ 4 попыток), `Retry-After` не дольше 60 с. Таймаут 60 с, обрыв, тело больше 1 МиБ. Заголовки без тела и обрыв после заголовков — ошибка, процесс жив, стека в логе нет. Ключ не светится. `stream: false` | `apps/server/src/llm/client.test.ts` |
+| H8 | Участник команды: `lead`, `assignee`, выбор чатов мержа | `e2e/h-api-bots.spec.ts`, `apps/server/src/llm/flow.test.ts` |
+| H9 | Бриф API-боту уходит по API сам, без обязательного буфера и `grokbot://`. В контексте нет чужих чатов и тел файлов. Ответ в UI только текст: `<script>` и `javascript:` не исполняются | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H10 | Ответ атомарно в `status/<bot_id>.json` по `statusSchema`. Невалидный ответ не портит файл и не роняет сервер. Записка не ставит `done`, не запускает мерж и не меняет lead/assignee. Тест: JSON со `status: "done"` и строкой `<script>` | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H11 | Чат в лаунчере, история в `data_dir`, не больше 100 сообщений: 101-е вытесняет первое. Ключа в сообщениях нет. Промпты и ответы не в логе | `apps/server/src/llm/store.test.ts`, `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H12 | `reply_limit` (short = 6 строк), `max_wakes_per_task`, пауза, `rules.base` не выключается. Счётчик атомарно в `data_dir`, переживает перечитывание, без гонки. Четвёртый вызов при лимите 3, в том числе из двух параллельных при счётчике 2, до мока не доходит. `POST /api/chat` при `paused: true` — 409, мок молчит | `apps/server/src/llm/flow.test.ts`, `apps/server/src/llm/store.test.ts` |
+| H13 | Расход по полю `usage` и имени переменной ключа, отдельно от недельной оценки. Нет `usage` — «нет данных», оценка не пишется. Файл в `data_dir` по своей схеме, атомарно. Значения ключа в файле нет | `apps/server/src/llm/store.test.ts`, `apps/server/src/llm/flow.test.ts` |
+| H14 | Новые POST в `isWrite` вместе с CSRF и Origin. Без токена, с чужим токеном и без Origin — 403, мок не вызван. Н59, пять случаев: `same-site` и `cross-site` — 403, мок молчит; `same-origin`, `none` и без заголовка — 200 | `apps/server/src/files/files.test.ts`, `apps/server/src/llm/flow.test.ts` |
+| H15 | Документы из списка, гигиена, `check-forbidden`, gitleaks. Остаточный риск TOCTOU ребайндинга — `docs/ARCH.md` | ревью документов, CI |
+
 ## Вопросы к владельцу (для Ава в LAUNCHER_PLAN.md)
 1. **F9:** какую цель экономии фиксируем — минус 30% пробуждений на задачу или другую?
 2. **E1:** порог визуального отличия от v6 ставим 2% или строже?

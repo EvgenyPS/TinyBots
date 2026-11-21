@@ -31,6 +31,18 @@ bots: # grok_id — вымышленный id для ссылки grokbot://app/
     role: "ревизор"
     paused: false
     grok_id: "demo-rev"
+  # Свой бот. Значения ключа здесь нет: только имя переменной из .env.
+  # Пресет deepseek без base_url подставляет https://api.deepseek.com
+  # Пресет qwen без base_url подставляет https://dashscope.aliyuncs.com/compatible-mode/v1
+  # base_url можно заменить на другой проверенный OpenAI-совместимый адрес.
+  - id: nora
+    name: "Нора"
+    role: "справка"
+    instructions: "Отвечай по карточке задачи. Чужие чаты не пересказывай."
+    provider: deepseek
+    model: deepseek-chat
+    base_url: "https://api.deepseek.com"
+    api_key_env: DEEPSEEK_API_KEY
 
 projects:
   - id: demo-game
@@ -48,7 +60,7 @@ projects:
       - id: build
         title: "Сборка"
         lead: dev1
-        members: [dev1, qa1, rev1, lead1]
+        members: [dev1, qa1, rev1, lead1, nora]
         rules:
           do: "код, тесты, ревью"
           dont: "оформление, посты"

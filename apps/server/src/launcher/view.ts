@@ -6,7 +6,7 @@
  * Имена на экране берутся только отсюда. Демо-список bots.json этот модуль не читает.
  */
 
-import type { LauncherConfig, MergeRequest } from '@tinybots/schema'
+import { isApiBot, type LauncherConfig, type MergeRequest } from '@tinybots/schema'
 import {
   loadConfigAt,
   resolveDataDir,
@@ -14,6 +14,7 @@ import {
   type ConfigFailure,
   type LoadedConfig,
 } from '../config/load.js'
+import { usageLabel } from '../llm/store.js'
 import { readMerges } from '../merge/disk.js'
 import { readLatestSync, readNotes, readTasks, type NoteRecord } from '../store/read.js'
 import { formatHm } from '../time.js'
@@ -24,6 +25,10 @@ export type LauncherBot = {
   role: string
   paused: boolean
   lead: boolean
+  transport: 'grok' | 'api'
+  provider: string | null
+  model: string | null
+  usage_label: string | null
 }
 
 export type LauncherProject = {
@@ -279,6 +284,10 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
       role: bot.role,
       paused: bot.paused === true,
       lead: leads.has(bot.id),
+      transport: isApiBot(bot) ? 'api' as const : 'grok' as const,
+      provider: isApiBot(bot) ? bot.provider : null,
+      model: isApiBot(bot) ? bot.model : null,
+      usage_label: isApiBot(bot) ? usageLabel(dataDir.dir, bot.api_key_env) : null,
     })),
     chats: config.projects.flatMap((project) =>
       project.chats.map((chat) => ({

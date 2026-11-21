@@ -57,13 +57,16 @@ test('API primary отдаёт проект, записку и метку син
   expect(view.synced_label).toBe('12:15')
 
   const projects = (await (await fetch(url(server, '/api/projects'))).json()) as { projects: unknown[] }
-  const roster = (await (await fetch(url(server, '/api/roster'))).json()) as { bots: Array<{ name: string }> }
+  const roster = (await (await fetch(url(server, '/api/roster'))).json()) as {
+    bots: Array<{ name: string; transport?: string; provider?: string | null; model?: string | null }>
+  }
   const chats = (await (await fetch(url(server, '/api/chats'))).json()) as { chats: Array<{ title: string }> }
   const notes = (await (await fetch(url(server, '/api/notes'))).json()) as { notes: Array<{ bot_id: string; status: string }> }
   const tasks = (await (await fetch(url(server, '/api/tasks'))).json()) as { tasks: unknown[] }
   const sync = (await (await fetch(url(server, '/api/sync'))).json()) as { synced_label: string }
   expect(projects.projects.length).toBe(1)
   expect(roster.bots.map((bot) => bot.name)).toContain('Ава')
+  expect(roster.bots.every((bot) => bot.transport === 'grok' && bot.provider === null && bot.model === null)).toBe(true)
   expect(chats.chats[0]?.title).toBe('Сборка')
   expect(notes.notes.find((note) => note.bot_id === 'rev1')?.status).toBe('missing')
   expect(tasks.tasks.length).toBeGreaterThan(0)

@@ -6,8 +6,24 @@
  * Имена полей — docs/CONTRACT.md. Черновик ARCH с brief/files/result сюда не входит.
  */
 
+export { apiUsageSchema, type ApiUsage } from './api-usage.js'
+export { addressKind, inspectBaseUrl, isObfuscatedIpv4, rawHostname, type InspectedBaseUrl } from './base-url.js'
+export { CHAT_LOG_LIMIT, chatLogSchema, chatMessageSchema, type ChatLog, type ChatMessage } from './chat-log.js'
 export { SCHEMA_VERSION, idSchema, isoSchema, isContainedPath, isMergeFilePath, isProjectFolderPath, isSafeDataDir } from './common.js'
-export { configSchema, type LauncherConfig } from './config.js'
+export {
+  API_KEY_ENV_PATTERN,
+  LLM_PRESET_BASE_URL,
+  apiBotSchema,
+  botSchema,
+  configSchema,
+  grokBotSchema,
+  isApiBot,
+  type ApiBot,
+  type Bot,
+  type GrokBot,
+  type LauncherConfig,
+} from './config.js'
+export { wakeCountSchema, type WakeCount } from './wake.js'
 export {
   HEAD_SHA_CHANGE,
   MERGE_STATES,

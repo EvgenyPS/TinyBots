@@ -102,6 +102,18 @@ export function originAllowed(origin: string | undefined, port: number): boolean
   return originPort === port
 }
 
+/**
+ * Чужая вкладка шлёт same-site или cross-site и не должна тратить ключ.
+ * Своя страница — same-origin, переход по адресной строке — none, старые клиенты заголовок не ставят.
+ */
+export function fetchSiteAllowed(header: string | undefined): boolean {
+  if (header === undefined) {
+    return true
+  }
+  const value = header.trim().toLowerCase()
+  return value.length === 0 || value === 'same-origin' || value === 'none'
+}
+
 export function requestAllowed(host: string | undefined, origin: string | undefined, port: number): boolean {
   if (!isListenPort(port) || host === undefined) {
     return false
