@@ -172,6 +172,41 @@ function counts(diff: string, file: string): { add: number; del: number } {
   )
 }
 
+function execPhrase(paths: readonly string[]): string {
+  if (paths.length === 1) {
+    const name = paths[0]?.split('/').pop() ?? ''
+    return `${name} исполняется при сборке`
+  }
+  return `${ru(paths.length, 'файл исполняется', 'файла исполняются', 'файлов исполняются')} при сборке`
+}
+
+function writeTo(name: string): string {
+  if (name.length > 1 && name.endsWith('а')) {
+    return `Написать ${name.slice(0, -1)}е`
+  }
+  if (name.length > 1 && name.endsWith('я')) {
+    return `Написать ${name.slice(0, -1)}е`
+  }
+  return 'Написать боту'
+}
+
+export function proposalCardMeta(item: ProposalView): { title: string; chip: string; chipClass: string; line: string } {
+  const totals = item.files.reduce(
+    (sum, file) => {
+      const part = counts(item.diff, file.path)
+      return { add: sum.add + part.add, del: sum.del + part.del }
+    },
+    { add: 0, del: 0 },
+  )
+  const mode = item.mode === 'git' ? 'git-ветка' : 'снимок'
+  return {
+    title: `Предложение #${shortId(item.id)}`,
+    chip: STATE_LABEL[item.state] ?? item.state,
+    chipClass: STATE_CLASS[item.state] ?? 's-new',
+    line: `${ru(item.files.length, 'файл', 'файла', 'файлов')} · +${totals.add} −${totals.del} · ${mode}`,
+  }
+}
+
 function chip(state: string) {
   return <span className={`chip ${STATE_CLASS[state] ?? 's-new'}`}>{STATE_LABEL[state] ?? state}</span>
 }
@@ -254,7 +289,7 @@ function ErrorCard(props: { reason: string; files: string[]; onCollapse: () => v
       <div className="merr-b">
         <span className="ic"><Icon d={ICON.warn} /></span>
         <div>
-          <b>Проект изменился</b>
+          <b>Проект изменился после предложения — ничего не записано</b>
           <ul>
             {props.files.map((file) => (
               <li key={file}><span className="mono">{file}</span><span className="why">{props.reason}</span></li>
@@ -310,6 +345,8 @@ export function ProposalModal(props: {
     : (WHY[item.why] ?? (conflict ? 'проект изменился после предложения' : ''))
   const headline = item.summary.split('\n')[0] ?? ''
   const hunks = rows.filter((row) => row.kind === 'hunk').length
+  const execPaths = item.files.filter((row) => executable(row.path)).map((row) => row.path)
+  const created = item.files.some((row) => row.is_new)
   const share = total.add + total.del === 0 ? 0 : Math.round((total.del / (total.add + total.del)) * 100)
   const history = (item.history ?? [{ state: item.state, at: '', by: item.bot_id, why: item.why }])
     .filter((row) => row.state !== 'applying' && row.state !== 'reverting')
@@ -409,7 +446,7 @@ export function ProposalModal(props: {
                   <span className="n"><span className="plus">+{stat.add}</span> <span className="minus">−{stat.del}</span></span>
                   <span className="tags">
                     {row.is_new ? <span className="mini new">новый</span> : null}
-                    {executable(row.path) ? <span className="mini exe" title={EXEC_HINT} data-testid={`exec-${row.path}`}>исполняется при сборке</span> : null}
+                    {executable(row.path) ? <span className="mini exe" title={EXEC_HINT} data-testid={`exec-${row.path}`}>{execPhrase([row.path])}</span> : null}
                     {conflict ? <span className="mini cf">{reason}</span> : null}
                   </span>
                 </button>
@@ -447,7 +484,7 @@ export function ProposalModal(props: {
               <span className="g"><Icon d={ICON.ok} />без удаления и переименования</span>
               <span className="g"><Icon d={ICON.ok} />стёрто ≤ 50% файла · здесь до {share}%</span>
               <span className="g"><Icon d={ICON.ok} />{item.files.length} из 20 файлов</span>
-              {item.files.some((row) => executable(row.path)) ? <span className="g w"><Icon d={ICON.warn} />исполняется при сборке</span> : null}
+              {execPaths.length > 0 ? <span className="g w"><Icon d={ICON.warn} />{execPhrase(execPaths)}</span> : null}
             </div>
           ) : null}
           {applied ? (
@@ -481,7 +518,7 @@ export function ProposalModal(props: {
               <button type="button" className="btn primary" data-testid="proposal-ask" disabled={busy || !props.canAsk} onClick={props.onAsk}>Попросить бота обновить</button>
             ) : null}
             {(rejected || reverted) ? (
-              <button type="button" className="btn" data-testid="proposal-write" disabled={busy || !props.canAsk} onClick={props.onWrite}>Написать {props.botName}</button>
+              <button type="button" className="btn" data-testid="proposal-write" disabled={busy || !props.canAsk} onClick={props.onWrite}>{writeTo(props.botName)}</button>
             ) : null}
             {!proposed && !conflict ? (
               <button type="button" className="btn" onClick={onClose}>Закрыть</button>
@@ -502,7 +539,9 @@ export function ProposalModal(props: {
             <p>
               {git
                 ? 'Удалим только ветку бота. Коммит останется в базе git, файлы на диске не меняются.'
-                : 'Вернём файлы к состоянию до применения из снимка. Созданный файл уберём с диска, копия останется в предложении.'}
+                : created
+                  ? 'Вернём файлы к состоянию до применения из снимка. Созданный файл уберём с диска, копия останется в предложении.'
+                  : 'Вернём файлы к состоянию до применения из снимка.'}
             </p>
             <ul>
               {git ? (

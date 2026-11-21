@@ -13,7 +13,7 @@ import { BriefPanel } from './brief-panel'
 import { DocsPanel } from './docs-panel'
 import { FilesPanel } from './files-panel'
 import { GitPanel } from './git-panel'
-import { MergeModal, ProposalDrawer, ProposalModal, proposalBadgeCount, type DecideInput, type MergeView, type ProposalView } from './merge-modal'
+import { MergeModal, ProposalDrawer, ProposalModal, proposalBadgeCount, proposalCardMeta, type DecideInput, type MergeView, type ProposalView } from './merge-modal'
 
 import { useEffect, useState } from 'react'
 
@@ -259,14 +259,15 @@ function BotTools(props: {
         </div>
         <div className="set-tabs">
           <button type="button" className={tab === 'main' ? 'on' : ''} onClick={() => setTab('main')}>Основное</button>
-          <button type="button" className={tab === 'model' ? 'on' : ''} onClick={() => setTab('model')}>Модель и ключ</button>
+          {api ? <button type="button" className={tab === 'model' ? 'on' : ''} onClick={() => setTab('model')}>Модель и ключ</button> : <button type="button" className={tab === 'chats' ? 'on' : ''} onClick={() => setTab('chats')}>Чаты</button>}
           <button type="button" className={tab === 'access' ? 'on' : ''} onClick={() => setTab('access')}>Доступ к проекту</button>
-          <button type="button" className={tab === 'limits' ? 'on' : ''} onClick={() => setTab('limits')}>Лимиты</button>
+          {api ? <button type="button" className={tab === 'limits' ? 'on' : ''} onClick={() => setTab('limits')}>Лимиты</button> : null}
         </div>
         <div className="set-b">
           {tab === 'main' ? <p className="sub">Имя, роль и транспорт задаются при создании бота. Здесь их не переписываем.</p> : null}
-          {tab === 'model' ? <p className="sub">Ключ провайдера хранится вне конфига, в переменной окружения. Модель меняется в конфиге, не в этом окне.</p> : null}
-          {tab === 'limits' ? <p className="sub">Лимиты ответа и пробуждений — общие на проект, шаг «Экономия» мастера.</p> : null}
+          {tab === 'model' && api ? <p className="sub">Ключ провайдера хранится вне конфига, в переменной окружения. Модель меняется в конфиге, не в этом окне.</p> : null}
+          {tab === 'chats' && !api ? <p className="sub">Чаты бота задаются в мастере. Здесь их не переписываем.</p> : null}
+          {tab === 'limits' && api ? <p className="sub">Лимиты ответа и пробуждений — общие на проект, шаг «Экономия» мастера.</p> : null}
           {tab === 'access' && !api ? (
             <div>
               <div className="grok-note" data-testid="bot-tools-grok">
@@ -325,16 +326,16 @@ function BotTools(props: {
                 </div>
                 {folderGit ? null : <p className="sub" data-testid="bot-apply-why">В папке нет git — ветка недоступна, останется снимок.</p>}
               </div>
-              <div className="alert warn"><b>Файлы уходят провайдеру</b> этого бота. .env и ключи лучше не класть в папку или закрыть их .gitignore.</div>
+              <div className="alert warn">Прочитанные файлы уходят провайдеру модели по вашему ключу и тратят токены. .env, ключи, сертификаты и .git бот не видит никогда.</div>
               <div className="alert info">Защиты те же: без удаления и переименования, не больше 20 файлов, не больше половины файла.</div>
             </div>
           ) : null}
         </div>
         <div className="set-f">
-          <span className="sub">Изменения действуют со следующего хода бота</span>
+          {api ? <span className="sub">Изменения действуют со следующего хода бота</span> : null}
           <span className="sp" />
-          <button type="button" className="btn" onClick={props.onClose}>Отмена</button>
-          {api ? <button type="button" className="btn primary" data-testid="bot-tools-save" disabled={busy} onClick={() => void save()}>Сохранить</button> : null}
+          {api ? <button type="button" className="btn" onClick={props.onClose}>Отмена</button> : null}
+          {api ? <button type="button" className="btn primary" data-testid="bot-tools-save" disabled={busy} onClick={() => void save()}>Сохранить</button> : <button type="button" className="btn primary" onClick={props.onClose}>Закрыть</button>}
           {note ? <p className="sub" data-testid="bot-tools-note">{note}</p> : null}
         </div>
       </div>
@@ -491,6 +492,7 @@ export function Dashboard() {
   const awaiting = requests.filter((item) => item.state === 'awaiting_owner')
   const threadItems = chat ? proposals.filter((item) => item.bot_id === chat.lead_id) : []
   const badge = proposalBadgeCount(threadItems)
+  const cardMeta = threadItems[0] ? proposalCardMeta(threadItems[0]) : null
   const openProposal = proposals.find((item) => item.id === proposalId) ?? null
   const merged = requests.filter((item) => item.state === 'merged')
   const openMr = requests.find((item) => item.id === mergeId) ?? null
@@ -891,10 +893,16 @@ export function Dashboard() {
                   </button>
                 </div>
                 <p className="sub">главный {chat.lead_name}</p>
-                {badge > 0 && threadItems[0] ? (
+                {badge > 0 && cardMeta && threadItems[0] ? (
                   <button type="button" className="pcard" onClick={() => { setNotice(null); setProposalId(threadItems[0]?.id ?? null) }}>
-                    <b>Предложение #{threadItems[0].id.slice(0, 7)} · {threadItems[0].files.length} файлов</b>
-                    <span>Открыть</span>
+                    <span className="pcard-body">
+                      <span className="pcard-l1">
+                        <b>{cardMeta.title}</b>
+                        <span className={`chip ${cardMeta.chipClass}`}>{cardMeta.chip}</span>
+                      </span>
+                      <span className="pcard-l2">{cardMeta.line}</span>
+                    </span>
+                    <span className="pcard-open">Открыть</span>
                   </button>
                 ) : null}
                 {project ? (

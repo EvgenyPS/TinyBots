@@ -594,7 +594,7 @@ export function SetupWizard() {
 
   return (
     <main className={step?.id === 'access' ? 'setup wizard wide' : 'setup wizard'} data-testid="setup-wizard">
-      <p className="k">{step?.id === 'access' ? 'Новый бот · по API' : 'Мастер'}</p>
+      <p className="k">Мастер</p>
       <h1 tabIndex={-1} ref={heading}>{step?.id === 'access' ? 'Доступ к проекту' : 'Настроить'}</h1>
       {loadError ? <p data-testid="setup-error">{loadError}</p> : null}
       {!info && !loadError ? <p data-testid="setup-loading">Загрузка мастера</p> : null}
@@ -876,7 +876,7 @@ export function SetupWizard() {
                     </div>
                     {form.probe?.git ? null : <p className="sub">В папке нет git — ветка недоступна, будет снимок.</p>}
                   </div>
-                  <div className="alert warn" data-testid="tools-provider-warning"><b>Файлы уходят провайдеру</b> своего бота. .env и ключи лучше закрыть .gitignore.</div>
+                  <div className="alert warn" data-testid="tools-provider-warning">Прочитанные файлы уходят провайдеру модели по вашему ключу и тратят токены. .env, ключи, сертификаты и .git бот не видит никогда.</div>
                   <div className="alert info">Защиты те же: без удаления и переименования, не больше 20 файлов, не больше половины файла.</div>
                 </div>
               ) : (

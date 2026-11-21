@@ -239,4 +239,4 @@ export function MergeModal(props: {
   )
 }
 
-export { ProposalModal, ProposalDrawer, proposalBadgeCount, type ProposalView } from './proposal-modal'
+export { ProposalModal, ProposalDrawer, proposalBadgeCount, proposalCardMeta, type ProposalView } from './proposal-modal'
