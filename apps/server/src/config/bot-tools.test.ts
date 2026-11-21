@@ -1,7 +1,7 @@
 /**
  * FILE: apps/server/src/config/bot-tools.test.ts
  * НАЗНАЧЕНИЕ: запись доступа из пульта. API-бот получает project_tools, Grok — нет.
- * Файл пишется целиком и снова проходит схему.
+ * В файле меняются только нужные ключи. Комментарии и порядок остаются.
  */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -137,4 +137,87 @@ test('apply_mode пишется API-боту и отвергается у Grok',
   }
   const nora = loaded.config.bots.find((bot) => bot.id === 'nora')
   expect(nora && 'apply_mode' in nora ? nora.apply_mode : '').toBe('files')
+})
+
+test('запись из пульта сохраняет комментарии и порядок ключей', async () => {
+  await mkdir(path.join(repoRoot(), 'data'), { recursive: true })
+  const dir = await mkdtemp(path.join(repoRoot(), 'data', 'vitest-yaml-'))
+  dirs.push(dir)
+  const project = path.join(dir, 'proj')
+  await mkdir(project)
+  const file = path.join(dir, 'config.yaml')
+  const source = [
+    '# шапка конфига',
+    'schema_version: 1',
+    'owner:',
+    '  name: Ника # владелец',
+    '  confirms_merge: true',
+    'data_dir: .',
+    'delivery: clipboard',
+    'bots:',
+    '  - id: nora',
+    '    name: Нора',
+    '    role: справка',
+    '    instructions: Коротко.',
+    '    provider: deepseek',
+    '    model: deepseek-chat',
+    '    base_url: http://127.0.0.1:9/v1',
+    '    api_key_env: DEEPSEEK_API_KEY',
+    '    project_tools: off # было выключено',
+    '  - id: bitk',
+    '    name: Бит',
+    '    role: код',
+    'projects:',
+    '  - id: demo-keys',
+    '    title: Demo',
+    '    lead: nora',
+    '    owner: owner',
+    '    merge_executor: bitk',
+    '    allow_bot_tools: false',
+    '    respect_gitignore: true',
+    '    source:',
+    '      files:',
+    `        path: ${JSON.stringify(project)}`,
+    '    chats:',
+    '      - id: build',
+    '        title: Сборка',
+    '        lead: nora',
+    '        members: [nora]',
+    '        rules:',
+    '          do: код',
+    '          dont: чужое',
+    '        context: []',
+    '        economy:',
+    '          wake: mentioned_only',
+    '          reply_limit: short',
+    'economy:',
+    '  defaults:',
+    '    wake: mentioned_only',
+    '    reply_limit: short',
+    '    max_wakes_per_task: 3',
+    '  stale_after_hours: 6',
+    '',
+  ].join('\n')
+  await writeFile(file, source)
+  const configPath = path.relative(repoRoot(), file).split(path.sep).join('/')
+  const saved = await saveBotTools(repoRoot(), { configPath }, {
+    bot_id: 'nora',
+    project_id: 'demo-keys',
+    project_tools: 'propose',
+    apply_mode: 'files',
+    allow_bot_tools: true,
+    respect_gitignore: false,
+  })
+  expect(saved.status).toBe(200)
+  const text = await readFile(file, 'utf8')
+  expect(text).toContain('# шапка конфига')
+  expect(text).toContain('# владелец')
+  expect(text).toContain('# было выключено')
+  expect(text.indexOf('role: справка')).toBeLessThan(text.indexOf('project_tools: propose'))
+  expect(text.indexOf('name: Нора')).toBeLessThan(text.indexOf('role: справка'))
+  expect(text).toContain('apply_mode: files')
+  expect(text).toContain('allow_bot_tools: true')
+  expect(text).toContain('respect_gitignore: false')
+  const loaded = loadConfigAt(repoRoot(), configPath)
+  expect(loaded.ok).toBe(true)
 })

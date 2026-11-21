@@ -27,13 +27,26 @@ function execFileBuffer(
     maxBuffer: number
     windowsHide: boolean
     shell: false
+    signal?: AbortSignal
   },
   input?: Buffer,
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new Error('tool_timeout'))
+      return
+    }
+    const onAbort = (): void => {
+      child.kill()
+    }
     const child = execFileCb(file, [...args], { ...options, encoding: 'buffer' }, (error, stdout, stderr) => {
+      options.signal?.removeEventListener('abort', onAbort)
       const out = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''), 'utf8')
       const err = Buffer.isBuffer(stderr) ? stderr : Buffer.from(String(stderr ?? ''), 'utf8')
+      if (options.signal?.aborted) {
+        reject(new Error('tool_timeout'))
+        return
+      }
       if (error) {
         const wrapped = error as ExecFileException & { stdout?: Buffer; stderr?: Buffer }
         Object.assign(wrapped, { stdout: out, stderr: err })
@@ -42,6 +55,7 @@ function execFileBuffer(
       }
       resolve({ stdout: out, stderr: err })
     })
+    options.signal?.addEventListener('abort', onAbort, { once: true })
     child.stdin?.on('error', () => undefined)
     if (input) {
       child.stdin?.end(input)
@@ -107,6 +121,7 @@ export type GitExec = (
     maxBuffer: number
     windowsHide: boolean
     shell: false
+    signal?: AbortSignal
   },
   input?: Buffer,
 ) => Promise<{ stdout: string | Buffer; stderr: string | Buffer }>
@@ -132,6 +147,8 @@ export type GitContext = {
   rootReal: string
   dataDir: string
   hooks?: GitHooks
+  /** Обрыв хода: git-процесс убивается, обход не дочитывается. */
+  signal?: AbortSignal
 }
 
 let cached: { bin: string; version: string } | { missing: string } | null = null
@@ -351,6 +368,7 @@ export async function runGit(
     maxBuffer: opt.maxBuffer ?? GIT_MAX_BUFFER,
     windowsHide: true,
     shell: false as const,
+    signal: ctx.signal,
   }
   if (ctx.hooks?.traceFile) {
     const { appendFileSync } = await import('node:fs')

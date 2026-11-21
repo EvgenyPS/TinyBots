@@ -260,29 +260,31 @@ export async function revertGitProposal(input: {
 }): Promise<{ ok: true; proposal: Proposal } | { ok: false; error: string; proposal: Proposal }> {
   const current = input.proposal
   const meta = current.git
-  if (!meta?.commit || current.state !== 'applied') {
+  if (!meta?.commit || (current.state !== 'applied' && current.state !== 'revert_conflict')) {
     return { ok: false, error: 'invalid_state', proposal: current }
   }
   const ref = `refs/heads/${meta.branch.replace(/^refs\/heads\//, '')}`
   const branchRef = meta.branch.startsWith('refs/') ? meta.branch : `refs/heads/${meta.branch}`
-  const head = await input.git.symbolicHead()
-  if (head.stdout.trim() === branchRef) {
+  const hold = async (): Promise<{ ok: false; error: string; proposal: Proposal }> => {
+    if (current.state === 'revert_conflict') {
+      return { ok: false, error: 'revert_conflict', proposal: current }
+    }
     const stayed = move(current, 'revert_conflict', input.at, input.by, 'revert_conflict')
     await writeProposal(input.dataDir, stayed)
     return { ok: false, error: 'revert_conflict', proposal: stayed }
   }
+  const head = await input.git.symbolicHead()
+  if (head.stdout.trim() === branchRef) {
+    return hold()
+  }
   const pointed = await input.git.verifyRef(branchRef)
   if (pointed.code !== 0 || pointed.stdout.trim() !== meta.commit) {
-    const stayed = move(current, 'revert_conflict', input.at, input.by, 'revert_conflict')
-    await writeProposal(input.dataDir, stayed)
-    return { ok: false, error: 'revert_conflict', proposal: stayed }
+    return hold()
   }
   const contained = (await input.git.forEachContains(meta.commit)).stdout
   const others = contained.split('\n').map((line) => line.trim()).filter((line) => line.length > 0 && !line.endsWith(branchRef) && !line.includes(` ${branchRef}`))
   if (others.some((line) => line.includes('refs/heads/') && !line.includes(branchRef))) {
-    const stayed = move(current, 'revert_conflict', input.at, input.by, 'revert_conflict')
-    await writeProposal(input.dataDir, stayed)
-    return { ok: false, error: 'revert_conflict', proposal: stayed }
+    return hold()
   }
   let reverting = move(current, 'reverting', input.at, input.by, 'revert')
   await writeProposal(input.dataDir, reverting)

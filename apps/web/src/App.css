@@ -252,7 +252,9 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
   grid-row: 1 / span 2;
   z-index: 1;
   width: auto;
-  max-height: 640px;
+  /* 1280×800: карточка целиком в окне и листается сама, не обрезается краем. */
+  max-height: calc(100vh - 88px);
+  align-self: start;
   overflow: auto;
   padding: 14px;
 }

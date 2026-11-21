@@ -3,12 +3,14 @@
  * НАЗНАЧЕНИЕ: записать доступ бота к папке проекта из пульта.
  * ВХОД: id бота и проекта, project_tools и два флага проекта.
  * ВЫХОД: обновлённый config.yaml. Схема та же, что у мастера: у Grok поля project_tools нет.
- * Запись атомарная. Ключ API в файл не попадает.
+ * Запись атомарная. Меняются только нужные ключи: комментарии и порядок остаются.
+ * Ключ API в файл не попадает.
  */
 
 import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { applyModeSchema, configSchema, idSchema, isApiBot, projectToolsSchema, type LauncherConfig } from '@tinybots/schema'
-import { stringify } from 'yaml'
+import { isMap, isSeq, parseDocument } from 'yaml'
 import { z } from 'zod'
 import { writeAtomic } from '../store/atomic.js'
 import { loadConfigAt, locateConfig, parseConfigText, selectConfigRequest } from './load.js'
@@ -26,6 +28,23 @@ const patchSchema = z.strictObject({
 })
 
 export type ToolsReply = { status: 200 | 403 | 422; body: Record<string, unknown> }
+
+/** Поставить поля у записи с id, не переписывая соседние ключи и комментарии. */
+function setOnId(seq: unknown, id: string, fields: Record<string, string | boolean>): boolean {
+  if (!isSeq(seq)) {
+    return false
+  }
+  for (const item of seq.items) {
+    if (!isMap(item) || String(item.get('id') ?? '') !== id) {
+      continue
+    }
+    for (const [key, value] of Object.entries(fields)) {
+      item.set(key, value)
+    }
+    return true
+  }
+  return false
+}
 
 export async function saveBotTools(root: string, options: LaunchOptions | undefined, payload: unknown): Promise<ToolsReply> {
   const patch = patchSchema.safeParse(payload)
@@ -91,7 +110,33 @@ export async function saveBotTools(root: string, options: LaunchOptions | undefi
       }
     }
   }
-  const yamlText = stringify(parsed.data, { lineWidth: 100 })
+  let original = ''
+  try {
+    original = await readFile(located.absolute, 'utf8')
+  } catch {
+    return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'конфиг не прочитался' } }
+  }
+  const doc = parseDocument(original)
+  if (doc.errors.length > 0 || !isMap(doc.contents)) {
+    return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'конфиг не разобрался' } }
+  }
+  const botFields: Record<string, string | boolean> = {}
+  if (isApiBot(bot) && patch.data.project_tools !== undefined) {
+    botFields.project_tools = patch.data.project_tools
+  }
+  if (isApiBot(bot) && patch.data.apply_mode !== undefined) {
+    botFields.apply_mode = patch.data.apply_mode
+  }
+  if (Object.keys(botFields).length > 0 && !setOnId(doc.contents.get('bots'), bot.id, botFields)) {
+    return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'бот в файле не найден' } }
+  }
+  if (!setOnId(doc.contents.get('projects'), project.id, {
+    allow_bot_tools: patch.data.allow_bot_tools,
+    respect_gitignore: patch.data.respect_gitignore,
+  })) {
+    return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'проект в файле не найден' } }
+  }
+  const yamlText = doc.toString()
   const text = yamlText.endsWith('\n') ? yamlText : `${yamlText}\n`
   const roundtrip = parseConfigText(text, located.display)
   if (!roundtrip.ok) {

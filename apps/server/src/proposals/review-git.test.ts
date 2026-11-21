@@ -115,6 +115,19 @@ test('checkout ветки предложения — revert_conflict, ветка
   expect(back).toMatchObject({ ok: false, error: 'revert_conflict' })
   expect(readProposal(box.data, row.id)?.state).toBe('revert_conflict')
   expect(git(box.repo, ['rev-parse', '--verify', `refs/heads/tinybots/proposal-${row.id}`]).length).toBeGreaterThan(0)
+  git(box.repo, ['checkout', 'main'])
+  expect((await act(box, row.id, row.sha, 'revert')).ok).toBe(true)
+  expect(readProposal(box.data, row.id)?.state).toBe('reverted')
+  expect(() => git(box.repo, ['rev-parse', '--verify', `refs/heads/tinybots/proposal-${row.id}`])).toThrow()
+})
+
+test('подмена post/ до git apply — conflict, ветка не остаётся', async () => {
+  const box = await repoWith('old\n')
+  const row = await propose(box, 'строка', '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-old\n+new\n')
+  await writeFile(path.join(box.data, 'proposals', row.id, 'post', 'note.txt'), 'zzz\n')
+  expect(await act(box, row.id, row.sha, 'apply')).toMatchObject({ ok: false, error: 'conflict' })
+  expect(await readFile(path.join(box.repo, 'note.txt'), 'utf8')).toBe('old\n')
+  expect(() => git(box.repo, ['rev-parse', '--verify', `refs/heads/tinybots/proposal-${row.id}`])).toThrow()
 })
 
 test('merge --ff-only — revert_conflict, ветка на месте', async () => {

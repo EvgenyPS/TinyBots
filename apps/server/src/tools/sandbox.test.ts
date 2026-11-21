@@ -6,7 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { link, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
@@ -145,6 +145,23 @@ test('I3 TOCTOU: каталог стал симлинком на тот же ф�
   }
 })
 
+test('двойная подмена файла до чтения', async () => {
+  const { root, ctx } = await layout()
+  const got = await readSandboxedFile(ctx, 'note.txt', {
+    beforeOpen: async () => {
+      const { rename } = await import('node:fs/promises')
+      await rename(path.join(root, 'note.txt'), path.join(root, 'note-a.txt'))
+      await writeFile(path.join(root, 'note.txt'), 'CANARY-A')
+      await rename(path.join(root, 'note.txt'), path.join(root, 'note-b.txt'))
+      await writeFile(path.join(root, 'note.txt'), 'CANARY-B')
+    },
+  })
+  expect(got.ok).toBe(false)
+  const packed = JSON.stringify(got)
+  expect(packed).not.toContain('CANARY-A')
+  expect(packed).not.toContain('CANARY-B')
+})
+
 test('I3 TOCTOU: файл заменили другим до чтения', async () => {
   const { root, ctx } = await layout()
   const got = await readSandboxedFile(ctx, 'note.txt', {
@@ -161,6 +178,47 @@ test('I3 TOCTOU: файл заменили другим до чтения', asyn
 test('ino 0 не подставляет чужое имя', () => {
   const name = spelledName('note.txt', { dev: 1n, ino: 0n }, [{ name: '.env', dev: 1n, ino: 0n }], 'linux')
   expect(name).toBe('note.txt')
+})
+
+test('жёсткая ссылка на файл вне проекта', async () => {
+  const { root, outside, ctx } = await layout()
+  const alias = path.join(root, 'alias.txt')
+  await link(path.join(outside, 'secret.txt'), alias)
+  const st = await lstat(alias, { bigint: true })
+  const handle = await open(alias, 'r')
+  let fstNlink = 0n
+  try {
+    fstNlink = (await handle.stat({ bigint: true })).nlink
+  } finally {
+    await handle.close()
+  }
+  const got = await readSandboxedFile(ctx, 'alias.txt')
+  if (st.nlink > 1n || fstNlink > 1n) {
+    expect(got.ok).toBe(false)
+    expect(JSON.stringify(got)).not.toContain('CANARY-OUTSIDE')
+    return
+  }
+  // Windows: и lstat, и fstat с bigint видят nlink 1. Обход дерева не возвращаем.
+  expect(process.platform).toBe('win32')
+  expect(st.nlink).toBe(1n)
+  expect(fstNlink).toBe(1n)
+})
+
+test('ссылка после первой проверки не читается', async () => {
+  const { root, ctx } = await layout()
+  const got = await readSandboxedFile(ctx, 'note.txt', {
+    beforeOpen: async () => {
+      await link(path.join(root, 'note.txt'), path.join(root, 'extra-link.txt'))
+    },
+  })
+  const st = await lstat(path.join(root, 'note.txt'), { bigint: true })
+  if (st.nlink > 1n) {
+    expect(got.ok).toBe(false)
+    expect(JSON.stringify(got)).not.toContain('hello')
+    return
+  }
+  expect(process.platform).toBe('win32')
+  expect(st.nlink).toBe(1n)
 })
 
 test('I6 hardlink в другом каталоге не читается', async () => {
@@ -263,6 +321,85 @@ test('I4 файл data_dir внутри проекта закрыт', async () =
   const { ctx } = await layout()
   const got = await readSandboxedFile(ctx, 'data-box/state.json')
   expect(got.ok).toBe(false)
+})
+
+test('поиск обрывается сигналом и не дочитывает каталог', async () => {
+  const { root, ctx } = await layout()
+  await writeFile(path.join(root, 'a.txt'), 'needle\n')
+  await writeFile(path.join(root, 'b.txt'), 'needle\n')
+  await writeFile(path.join(root, 'c.txt'), 'needle\n')
+  const ac = new AbortController()
+  let opened = 0
+  const tool: ToolRunContext = {
+    sandbox: ctx,
+    level: 'read',
+    projectId: 'project-1',
+    botId: 'bot-1',
+    dataDir: ctx.dataReal ?? root,
+    dataReal: ctx.dataReal ?? root,
+    launcherCwd: root,
+    configReal: null,
+    respectGitignore: true,
+    projectReal: root,
+    now: new Date(),
+    hooks: {
+      beforeOpen: () => {
+        opened += 1
+        ac.abort()
+      },
+    },
+  }
+  await expect(runTool(tool, 'search', JSON.stringify({ query: 'needle' }), undefined, ac.signal)).rejects.toThrow('tool_timeout')
+  expect(opened).toBe(1)
+})
+
+test('propose_patch обрывается сигналом и не пишет предложение', async () => {
+  const { root, ctx } = await layout()
+  const ac = new AbortController()
+  let opened = 0
+  const tool: ToolRunContext = {
+    sandbox: ctx,
+    level: 'propose',
+    projectId: 'project-1',
+    botId: 'bot-1',
+    dataDir: ctx.dataReal ?? root,
+    dataReal: ctx.dataReal ?? root,
+    launcherCwd: root,
+    configReal: null,
+    respectGitignore: true,
+    projectReal: root,
+    now: new Date(),
+    applyMode: 'files',
+    hooks: {
+      beforeOpen: () => {
+        opened += 1
+        ac.abort()
+      },
+    },
+  }
+  const diff = '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-hello\n+bye\n'
+  await expect(runTool(tool, 'propose_patch', JSON.stringify({ summary: 'правка', diff }), undefined, ac.signal)).rejects.toThrow('tool_timeout')
+  expect(opened).toBe(1)
+})
+
+test('list_dir с оборванным сигналом не отдаёт список', async () => {
+  const { root, ctx } = await layout()
+  const ac = new AbortController()
+  ac.abort()
+  const tool: ToolRunContext = {
+    sandbox: ctx,
+    level: 'read',
+    projectId: 'project-1',
+    botId: 'bot-1',
+    dataDir: ctx.dataReal ?? root,
+    dataReal: ctx.dataReal ?? root,
+    launcherCwd: root,
+    configReal: null,
+    respectGitignore: true,
+    projectReal: root,
+    now: new Date(),
+  }
+  await expect(runTool(tool, 'list_dir', JSON.stringify({ path: '' }), undefined, ac.signal)).rejects.toThrow('tool_timeout')
 })
 
 test('I6 hardlink не читается, бинарный файл отдаёт binary, FIFO не читается', async () => {

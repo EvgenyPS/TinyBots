@@ -304,7 +304,10 @@ export function ProposalModal(props: {
     },
     { add: 0, del: 0 },
   )
-  const reason = WHY[item.why] ?? (conflict ? 'проект изменился после предложения' : '')
+  const filesRevert = item.mode === 'files' && (item.why === 'revert_conflict' || item.state === 'revert_conflict')
+  const reason = filesRevert
+    ? 'файлы изменились после применения, откат остановлен'
+    : (WHY[item.why] ?? (conflict ? 'проект изменился после предложения' : ''))
   const headline = item.summary.split('\n')[0] ?? ''
   const hunks = rows.filter((row) => row.kind === 'hunk').length
   const share = total.add + total.del === 0 ? 0 : Math.round((total.del / (total.add + total.del)) * 100)
@@ -456,7 +459,12 @@ export function ProposalModal(props: {
           ) : null}
           {rejected ? <div className="fnote">Отклонено. Проект не менялся.</div> : null}
           {reverted ? <div className="fnote">Откачено. Файлы восстановлены, копия правки остаётся в предложении.</div> : null}
-          {conflict ? (
+          {item.state === 'revert_conflict' ? (
+            <div className="fnote err">
+              <b>Откат остановлен:</b> {reason}
+              {!errorOpen ? <button type="button" className="lnk" data-testid="proposal-error-more" onClick={() => setErrorOpen(true)}>Подробнее</button> : null}
+            </div>
+          ) : conflict ? (
             <div className="fnote err">
               <b>Не применяется:</b> {ru(item.files.length, 'файл изменился', 'файла изменились', 'файлов изменились')} после предложения
               {!errorOpen ? <button type="button" className="lnk" data-testid="proposal-error-more" onClick={() => setErrorOpen(true)}>Подробнее</button> : null}
@@ -478,7 +486,7 @@ export function ProposalModal(props: {
             {!proposed && !conflict ? (
               <button type="button" className="btn" onClick={onClose}>Закрыть</button>
             ) : null}
-            {applied ? (
+            {applied || item.state === 'revert_conflict' ? (
               <button type="button" className="btn danger" data-testid="proposal-revert" disabled={busy} onClick={() => setConfirmRevert(true)}>
                 <Icon d={ICON.undo} />{git ? 'Удалить ветку…' : 'Откатить…'}
               </button>
@@ -506,7 +514,7 @@ export function ProposalModal(props: {
                 <li key={row.path}><Icon d={ICON.doc} /><span><b className="mono">{row.path}</b><small>{row.is_new ? 'файл создан ботом — уберём с диска' : 'вернётся прежнее содержимое'}</small></span></li>
               ))}
             </ul>
-            <div className="warnline">Если файлы или ветку уже меняли после применения — откат остановится и ничего не изменит.</div>
+            <div className="warnline">{git ? 'Если ветку уже меняли после применения — откат остановится и ничего не изменит.' : 'Если файлы уже меняли после применения — откат остановится и ничего не изменит.'}</div>
             <div className="acts">
               <button type="button" className="btn" onClick={() => setConfirmRevert(false)}>Отмена</button>
               <button type="button" className="btn danger" data-testid="proposal-revert-yes" disabled={busy} onClick={() => { setConfirmRevert(false); props.onRevert() }}>

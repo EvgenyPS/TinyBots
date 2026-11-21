@@ -78,13 +78,15 @@ async function act(
       ? await applyProposal({ ...common, projectReal: real, launcherCwd: root })
       : await revertProposal({ ...common, projectReal: real, launcherCwd: root })
   if (!result.ok) {
-    if (result.error === 'patch_sha256' || result.error === 'invalid_state' || result.error === 'missing') {
+    const named = result.error === 'patch_sha256' || result.error === 'invalid_state' || result.error === 'missing'
+    const message = ownerMessage(result.error, item.mode, named ? result.error : 'предложение не применилось')
+    if (named) {
       const status = result.error === 'missing' ? 404 : 409
-      return { status, body: { ok: false, error: result.error, message: OWNER_TEXT[result.error] ?? result.error } }
+      return { status, body: { ok: false, error: result.error, message } }
     }
     return {
       status: 409,
-      body: { ok: false, error: result.error, message: OWNER_TEXT[result.error] ?? 'предложение не применилось' },
+      body: { ok: false, error: result.error, message },
     }
   }
   return { status: 200, body: { ok: true, id: item.id } }
@@ -100,6 +102,13 @@ export function postProposalReject(root: string, options: LaunchOptions | undefi
 
 export function postProposalRevert(root: string, options: LaunchOptions | undefined, payload: unknown): Promise<ProposalReply> {
   return act(root, options, payload, 'revert')
+}
+
+function ownerMessage(error: string, mode: string | undefined, fallback: string): string {
+  if (error === 'revert_conflict' && mode === 'files') {
+    return 'файлы изменились после применения, откат остановлен'
+  }
+  return OWNER_TEXT[error] ?? fallback
 }
 
 function readDiff(dataDir: string, id: string): string {

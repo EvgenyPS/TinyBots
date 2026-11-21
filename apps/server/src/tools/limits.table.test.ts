@@ -145,8 +145,7 @@ test('I5 search: файлы, каталоги, байты, совпадения 
   const ctx = await toolCtx(root, data)
   const files = path.join(root, 'files')
   mkdirSync(files)
-  // По файлу в своём каталоге. На Windows жёсткая ссылка ищется по ino среди соседей,
-  // и две тысячи файлов в одной папке делают каждый read квадратичным.
+  // По файлу в своём каталоге, чтобы лимит каталогов не сработал раньше лимита файлов.
   for (let index = 0; index < SEARCH_FILES_MAX; index += 1) {
     const dir = path.join(files, `n${index}`)
     mkdirSync(dir)

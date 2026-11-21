@@ -46,6 +46,19 @@ function atIso(now: Date): string {
   return now.toISOString()
 }
 
+function live(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error('tool_timeout')
+  }
+}
+
+async function keepRevertConflict(dataDir: string, item: Proposal, at: string, by: string): Promise<void> {
+  if (item.state === 'revert_conflict') {
+    return
+  }
+  await writeProposal(dataDir, move(item, 'revert_conflict', at, by, 'revert_conflict'))
+}
+
 function move(item: Proposal, state: Proposal['state'], at: string, by: string, why: string): Proposal {
   if (!canProposalTransition(item.state, state)) {
     throw new Error('invalid_state')
@@ -79,7 +92,9 @@ export async function createProposal(input: {
   hooks?: EngineHooks
   /** git или files. Без поля — git, если в папке обычный каталог .git. */
   applyMode?: 'git' | 'files'
+  signal?: AbortSignal
 }): Promise<{ ok: true; id: string; mode: 'files' | 'git' } | { ok: false; error: string }> {
+  live(input.signal)
   if (input.summary.trim().length === 0) {
     return { ok: false, error: 'нужна сводка' }
   }
@@ -90,6 +105,7 @@ export async function createProposal(input: {
   }
   const currentBytes = new Map<string, Buffer>()
   for (const file of parsed.files) {
+    live(input.signal)
     if (file.isNew) {
       const created = await resolveToolPath(ctx, file.path, 'new')
       if (!created.ok) {
@@ -98,7 +114,7 @@ export async function createProposal(input: {
       currentBytes.set(file.path, Buffer.alloc(0))
       continue
     }
-    const read = await readSandboxedFile(ctx, file.path, input.hooks)
+    const read = await readSandboxedFile(ctx, file.path, input.hooks, input.signal)
     if (!read.ok) {
       return { ok: false, error: 'путь не принят' }
     }
@@ -146,6 +162,7 @@ export async function createProposal(input: {
       rootReal: input.projectReal,
       dataDir: input.dataDir,
       hooks: input.hooks,
+      signal: input.signal,
     }
     const inspected = await inspectGitRepo(gitCtx)
     if (!inspected.ok) {
@@ -163,7 +180,9 @@ export async function createProposal(input: {
   } else if (gitStat && (gitStat.isSymbolicLink() || !gitStat.isDirectory())) {
     return { ok: false, error: 'вложенный репозиторий не поддерживается' }
   }
+  live(input.signal)
   await sweepClosed(input.dataDir, input.projectId, input.now)
+  live(input.signal)
   const adding = Buffer.byteLength(input.diff) + [...bodies.values()].reduce((sum, item) => sum + item.length, 0)
   const room = await roomFor(input.dataDir, input.projectId, adding)
   if (room) {
@@ -390,7 +409,7 @@ export async function revertProposal(input: {
     if (item.patch_sha256 !== input.patchSha) {
       return { ok: false, error: 'patch_sha256' }
     }
-    if (item.state !== 'applied') {
+    if (item.state !== 'applied' && item.state !== 'revert_conflict') {
       return { ok: false, error: 'invalid_state' }
     }
     const at = atIso(input.now)
@@ -414,18 +433,15 @@ export async function revertProposal(input: {
       try {
         const st = await lstat(live)
         if (st.isSymbolicLink() || !st.isFile() || st.nlink > 1) {
-          const stayed = move(item, 'revert_conflict', at, input.by, 'revert_conflict')
-          await writeProposal(input.dataDir, stayed)
+          await keepRevertConflict(input.dataDir, item, at, input.by)
           return { ok: false, error: 'revert_conflict' }
         }
         if (await sha256Of(live) !== file.post_sha256) {
-          const stayed = move(item, 'revert_conflict', at, input.by, 'revert_conflict')
-          await writeProposal(input.dataDir, stayed)
+          await keepRevertConflict(input.dataDir, item, at, input.by)
           return { ok: false, error: 'revert_conflict' }
         }
       } catch {
-        const stayed = move(item, 'revert_conflict', at, input.by, 'revert_conflict')
-        await writeProposal(input.dataDir, stayed)
+        await keepRevertConflict(input.dataDir, item, at, input.by)
         return { ok: false, error: 'revert_conflict' }
       }
     }

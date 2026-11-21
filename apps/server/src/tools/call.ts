@@ -28,8 +28,6 @@ import {
 import { pathDenied, segmentDenied } from './names.js'
 import { gitignoreDenies } from './gitignore.js'
 import {
-  clearInodeCensus,
-  loadInodeCensus,
   readSandboxedFile,
   resolveToolPath,
   type SandboxContext,
@@ -76,6 +74,11 @@ function fail(error: string): string {
   return JSON.stringify({ ok: false, error })
 }
 
+/** Сигнал в opendir есть в Node 20, в установленных типах поля ещё нет. */
+function dirOptions(signal?: AbortSignal): Parameters<typeof opendir>[1] {
+  return signal ? { signal } as Parameters<typeof opendir>[1] : undefined
+}
+
 function isBinary(bytes: Buffer): boolean {
   const probe = bytes.subarray(0, BINARY_PROBE)
   if (probe.includes(0)) {
@@ -89,16 +92,22 @@ function isBinary(bytes: Buffer): boolean {
   }
 }
 
-async function listDir(ctx: ToolRunContext, rel: string): Promise<string> {
+async function listDir(ctx: ToolRunContext, rel: string, signal?: AbortSignal): Promise<string> {
+  if (signal?.aborted) {
+    throw new Error('tool_timeout')
+  }
   const found = await resolveToolPath(ctx.sandbox, rel, 'dir')
   if (!found.ok) {
     return fail(found.reason)
   }
-  const dir = await opendir(found.abs)
+  const dir = await opendir(found.abs, dirOptions(signal))
   const entries: Array<{ name: string; kind: 'file' | 'dir' }> = []
   try {
     let seen = 0
     for await (const entry of dir) {
+      if (signal?.aborted) {
+        throw new Error('tool_timeout')
+      }
       seen += 1
       if (seen > LIST_DIR_MAX) {
         return fail('слишком много записей')
@@ -126,17 +135,25 @@ async function listDir(ctx: ToolRunContext, rel: string): Promise<string> {
       }
       entries.push({ name: entry.name, kind: 'file' })
     }
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new Error('tool_timeout')
+    }
+    throw error
   } finally {
     await dir.close().catch(() => undefined)
   }
   return JSON.stringify({ ok: true, path: found.rel, entries })
 }
 
-async function readFileTool(ctx: ToolRunContext, raw: z.infer<typeof readArgs>): Promise<string> {
+async function readFileTool(ctx: ToolRunContext, raw: z.infer<typeof readArgs>, signal?: AbortSignal): Promise<string> {
+  if (signal?.aborted) {
+    throw new Error('tool_timeout')
+  }
   if (raw.max_lines !== undefined && raw.max_lines > READ_LINES_MAX) {
     return fail('слишком много строк')
   }
-  const read = await readSandboxedFile(ctx.sandbox, raw.path, ctx.hooks)
+  const read = await readSandboxedFile(ctx.sandbox, raw.path, ctx.hooks, signal)
   if (!read.ok) {
     return fail(read.reason)
   }
@@ -178,8 +195,6 @@ async function searchTool(ctx: ToolRunContext, query: string, rel: string, signa
   let bytes = 0
   const stack = [root.abs]
   const relOf = new Map<string, string>([[root.abs, root.rel]])
-  await loadInodeCensus(ctx.sandbox)
-  try {
   while (stack.length > 0) {
     if (signal?.aborted) {
       throw new Error('tool_timeout')
@@ -192,9 +207,12 @@ async function searchTool(ctx: ToolRunContext, query: string, rel: string, signa
     if (dirs > SEARCH_DIRS_MAX) {
       return fail('слишком много каталогов')
     }
-    const opened = await opendir(dirAbs)
+    const opened = await opendir(dirAbs, dirOptions(signal))
     try {
       for await (const entry of opened) {
+        if (signal?.aborted) {
+          throw new Error('tool_timeout')
+        }
         const abs = path.join(dirAbs, entry.name)
         const parentRel = relOf.get(dirAbs) ?? ''
         const childRel = parentRel.length === 0 ? entry.name : `${parentRel}/${entry.name}`
@@ -223,7 +241,7 @@ async function searchTool(ctx: ToolRunContext, query: string, rel: string, signa
         if (bytes > SEARCH_BYTES_MAX) {
           return fail('слишком большой обход')
         }
-        const read = await readSandboxedFile(ctx.sandbox, childRel, ctx.hooks)
+        const read = await readSandboxedFile(ctx.sandbox, childRel, ctx.hooks, signal)
         if (!read.ok || isBinary(read.bytes)) {
           continue
         }
@@ -244,14 +262,16 @@ async function searchTool(ctx: ToolRunContext, query: string, rel: string, signa
           })
         }
       }
+    } catch (error) {
+      if (signal?.aborted) {
+        throw new Error('tool_timeout')
+      }
+      throw error
     } finally {
       await opened.close().catch(() => undefined)
     }
   }
   return JSON.stringify({ ok: true, matches })
-  } finally {
-    clearInodeCensus(ctx.sandbox)
-  }
 }
 
 export async function runTool(
@@ -283,11 +303,11 @@ async function dispatchTool(ctx: ToolRunContext, name: string, argsText: string,
   }
   if (name === 'list_dir') {
     const args = listArgs.safeParse(parsed)
-    return args.success ? listDir(ctx, args.data.path) : fail('аргументы')
+    return args.success ? listDir(ctx, args.data.path, signal) : fail('аргументы')
   }
   if (name === 'read_file') {
     const args = readArgs.safeParse(parsed)
-    return args.success ? readFileTool(ctx, args.data) : fail('аргументы')
+    return args.success ? readFileTool(ctx, args.data, signal) : fail('аргументы')
   }
   if (name === 'search') {
     const args = searchArgs.safeParse(parsed)
@@ -318,6 +338,7 @@ async function dispatchTool(ctx: ToolRunContext, name: string, argsText: string,
     now: ctx.now,
     hooks: ctx.hooks,
     applyMode: ctx.applyMode,
+    signal,
   })
   return made.ok ? JSON.stringify({ ok: true, id: made.id, mode: made.mode }) : fail(made.error)
 }

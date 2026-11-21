@@ -9,6 +9,8 @@
  * На Windows перед обходом пробуем realpath: регистр и длинное имя без квадратичного lstat.
  * ino 0 не сопоставляем с чужой записью.
  * Между проверкой и open есть крюк: подмена каталога симлинком должна дать отказ.
+ * Жёсткая ссылка — только nlink после open. Дерево проекта ради учёта ino не обходим:
+ * на большой папке это упиралось в таймаут и защиты не добавляло.
  */
 
 import path from 'node:path'
@@ -34,8 +36,6 @@ export type SandboxContext = {
   respectGitignore: boolean
   gitignore: readonly IgnoreRule[]
   platform?: NodeJS.Platform
-  /** Снимок ino на время одного поиска. На Windows nlink врёт, и без снимка каждый файл обходит всё дерево. */
-  inodeCensus?: Map<string, number>
 }
 
 export type SandboxOk = {
@@ -98,78 +98,9 @@ export function pathShapeReason(rel: string, platform: NodeJS.Platform, maxDepth
   return null
 }
 
-/**
- * POSIX доверяет nlink: ссылка в другом каталоге тоже даёт nlink > 1.
- * На Windows nlink часто 1, поэтому тот же ino ищем по всему корню проекта, не только рядом с файлом.
- * ino 0 не считаем: на части томов он у всех файлов.
- */
-async function hardLink(ctx: SandboxContext, nlink: bigint, dev: bigint, ino: bigint): Promise<boolean> {
-  if (nlink > 1n) {
-    return true
-  }
-  if (process.platform !== 'win32' || ino === 0n) {
-    return false
-  }
-  const census = ctx.inodeCensus ?? await buildCensus(ctx.rootReal)
-  return (census.get(inodeKey(dev, ino)) ?? 0) > 1
-}
-
-function inodeKey(dev: bigint, ino: bigint): string {
-  return `${dev.toString(16)}:${ino.toString(16)}`
-}
-
-async function buildCensus(root: string): Promise<Map<string, number>> {
-  const map = new Map<string, number>()
-  const stack = [root]
-  while (stack.length > 0) {
-    const dir = stack.pop()
-    if (!dir) {
-      break
-    }
-    let opened: Awaited<ReturnType<typeof opendir>>
-    try {
-      opened = await opendir(dir)
-    } catch {
-      continue
-    }
-    try {
-      for await (const entry of opened) {
-        let st: Awaited<ReturnType<typeof lstat>>
-        try {
-          st = await lstat(path.join(dir, entry.name), { bigint: true })
-        } catch {
-          continue
-        }
-        if (st.isSymbolicLink()) {
-          continue
-        }
-        if (st.isDirectory()) {
-          stack.push(path.join(dir, entry.name))
-          continue
-        }
-        if (!st.isFile() || st.ino === 0n) {
-          continue
-        }
-        const key = inodeKey(st.dev, st.ino)
-        map.set(key, (map.get(key) ?? 0) + 1)
-      }
-    } finally {
-      await opened.close().catch(() => undefined)
-    }
-  }
-  return map
-}
-
-/** Один обход на поиск: иначе каждая из 2000 проверок снова идёт по всему дереву. */
-export async function loadInodeCensus(ctx: SandboxContext): Promise<void> {
-  if (process.platform !== 'win32') {
-    return
-  }
-  ctx.inodeCensus = await buildCensus(ctx.rootReal)
-}
-
-export function clearInodeCensus(ctx: SandboxContext): void {
-  ctx.inodeCensus = undefined
+/** Жёсткая ссылка видна по nlink открытого файла. Обход корня ради того же ino не делаем. */
+function hardLink(nlink: bigint): boolean {
+  return nlink > 1n
 }
 
 type DiskEntry = { name: string; dev: bigint; ino: bigint }
@@ -419,7 +350,11 @@ export async function readSandboxedFile(
   ctx: SandboxContext,
   rel: string,
   hooks?: SandboxHooks,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; bytes: Buffer; abs: string } | SandboxNo> {
+  if (signal?.aborted) {
+    throw new Error('tool_timeout')
+  }
   const found = await resolveToolPath(ctx, rel, 'file')
   if (!found.ok) {
     return found
@@ -433,11 +368,14 @@ export async function readSandboxedFile(
   if (before.isSymbolicLink() || !before.isFile()) {
     return { ok: false, reason: 'не файл' }
   }
-  if (await hardLink(ctx, before.nlink, before.dev, before.ino)) {
+  if (hardLink(before.nlink)) {
     return { ok: false, reason: 'ссылка' }
   }
   if (hooks?.beforeOpen) {
     await hooks.beforeOpen()
+  }
+  if (signal?.aborted) {
+    throw new Error('tool_timeout')
   }
   let handle: FileHandle
   try {
@@ -452,7 +390,10 @@ export async function readSandboxedFile(
     if (!segmentsOk || fst.dev !== again.dev || fst.ino !== again.ino || fst.ino !== before.ino || fst.dev !== before.dev) {
       return { ok: false, reason: 'подмена' }
     }
-    if (fst.isSymbolicLink() || !fst.isFile() || await hardLink(ctx, fst.nlink, fst.dev, fst.ino)) {
+    if (signal?.aborted) {
+      throw new Error('tool_timeout')
+    }
+    if (fst.isSymbolicLink() || !fst.isFile() || hardLink(fst.nlink)) {
       return { ok: false, reason: 'не файл' }
     }
     const bytes = Buffer.from(await handle.readFile())

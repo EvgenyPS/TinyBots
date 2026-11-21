@@ -40,17 +40,28 @@ test('PATH: относительный каталог и git внутри про
   const planted = path.join(project, 'bin', name)
   await writeFile(planted, '#!/bin/sh\necho no\n')
   await chmod(planted, 0o755)
+  // Настоящий относительный каталог с поддельным git. Не копия git.exe: иначе Windows его и запускает.
+  const relbin = path.join(base, 'relbin')
+  await mkdir(relbin)
+  const fake = path.join(relbin, name)
+  await writeFile(fake, 'not a git\n')
+  await chmod(fake, 0o755)
   const real = systemGit()
   expect(real.length).toBeGreaterThan(0)
-  // Каталог настоящего git, без копии: Git for Windows ищет свои файлы рядом с exe.
-  const found = await findGitBinary({
-    pathEnv: ['relbin', path.join(project, 'bin'), path.dirname(real)].join(path.delimiter),
-    projectReals: [await realpath(project)],
-    dataReal: await realpath(data),
-  })
-  expect(found.ok).toBe(true)
-  if (found.ok) {
-    expect(path.resolve(found.bin)).toBe(path.resolve(real))
+  const previous = process.cwd()
+  process.chdir(base)
+  try {
+    const found = await findGitBinary({
+      pathEnv: ['relbin', path.join(project, 'bin'), path.dirname(real)].join(path.delimiter),
+      projectReals: [await realpath(project)],
+      dataReal: await realpath(data),
+    })
+    expect(found.ok).toBe(true)
+    if (found.ok) {
+      expect(path.resolve(found.bin)).toBe(path.resolve(real))
+    }
+  } finally {
+    process.chdir(previous)
   }
 })
 
