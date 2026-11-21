@@ -5,7 +5,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
@@ -24,7 +24,9 @@ afterEach(async () => {
 function systemGit(): string {
   const cmd = process.platform === 'win32' ? 'where' : 'which'
   const text = execFileSync(cmd, ['git'], { encoding: 'utf8' })
-  return text.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0) ?? ''
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0)
+  const exe = lines.find((line) => line.toLowerCase().endsWith(process.platform === 'win32' ? 'git.exe' : 'git'))
+  return exe ?? ''
 }
 
 test('PATH: относительный каталог и git внутри проекта пропускаются', async () => {
@@ -32,21 +34,19 @@ test('PATH: относительный каталог и git внутри про
   dirs.push(base)
   const project = path.join(base, 'proj')
   const data = path.join(base, 'data')
-  const outside = path.join(base, 'outside')
   await mkdir(path.join(project, 'bin'), { recursive: true })
   await mkdir(data)
-  await mkdir(outside)
   const name = process.platform === 'win32' ? 'git.exe' : 'git'
   const planted = path.join(project, 'bin', name)
   await writeFile(planted, '#!/bin/sh\necho no\n')
   await chmod(planted, 0o755)
   const real = systemGit()
   expect(real.length).toBeGreaterThan(0)
-  await symlink(real, path.join(outside, name))
+  // Каталог настоящего git, без копии: Git for Windows ищет свои файлы рядом с exe.
   const found = await findGitBinary({
-    pathEnv: ['relbin', path.join(project, 'bin'), outside].join(path.delimiter),
-    projectReals: [project],
-    dataReal: data,
+    pathEnv: ['relbin', path.join(project, 'bin'), path.dirname(real)].join(path.delimiter),
+    projectReals: [await realpath(project)],
+    dataReal: await realpath(data),
   })
   expect(found.ok).toBe(true)
   if (found.ok) {
