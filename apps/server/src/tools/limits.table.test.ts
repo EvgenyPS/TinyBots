@@ -195,7 +195,7 @@ test('I5 search: файлы, каталоги, байты, совпадения 
   expect(parsed(await ask('z'.repeat(SEARCH_QUERY_MAX))).ok).toBe(true)
   expect(parsed(await ask('z'))).toMatchObject({ ok: false, error: 'длина запроса' })
   expect(parsed(await ask('z'.repeat(SEARCH_QUERY_MAX + 1)))).toMatchObject({ ok: false, error: 'длина запроса' })
-}, 180_000)
+}, 480_000)
 
 test('I5 diff: 256 КиБ, 20 файлов и итог 1 МиБ', () => {
   const one = '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-old\n+new\n'

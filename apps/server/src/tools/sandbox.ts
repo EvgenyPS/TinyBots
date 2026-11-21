@@ -94,7 +94,18 @@ export function pathShapeReason(rel: string, platform: NodeJS.Platform, maxDepth
   return null
 }
 
-/** На Windows nlink часто 1, даже если имён два. Общий ino — та же жёсткая ссылка. Ноль не считаем. */
+/** POSIX доверяет nlink. На Windows он часто 1, поэтому там ещё считаем имена с тем же ino. */
+async function hardLink(abs: string, nlink: bigint, dev: bigint, ino: bigint): Promise<boolean> {
+  if (nlink > 1n) {
+    return true
+  }
+  if (process.platform !== 'win32') {
+    return false
+  }
+  return inodeShared(path.dirname(abs), dev, ino)
+}
+
+/** Общий ino у двух имён — жёсткая ссылка. Ноль не считаем: на части томов он у всех файлов. */
 async function inodeShared(parent: string, dev: bigint, ino: bigint): Promise<boolean> {
   if (ino === 0n) {
     return false
@@ -328,7 +339,7 @@ export async function readSandboxedFile(
   if (before.isSymbolicLink() || !before.isFile()) {
     return { ok: false, reason: 'не файл' }
   }
-  if (before.nlink > 1n || await inodeShared(path.dirname(found.abs), before.dev, before.ino)) {
+  if (await hardLink(found.abs, before.nlink, before.dev, before.ino)) {
     return { ok: false, reason: 'ссылка' }
   }
   if (hooks?.beforeOpen) {
@@ -347,7 +358,7 @@ export async function readSandboxedFile(
     if (!segmentsOk || fst.dev !== again.dev || fst.ino !== again.ino || fst.ino !== before.ino || fst.dev !== before.dev) {
       return { ok: false, reason: 'подмена' }
     }
-    if (fst.isSymbolicLink() || !fst.isFile() || fst.nlink > 1n || await inodeShared(path.dirname(found.abs), fst.dev, fst.ino)) {
+    if (fst.isSymbolicLink() || !fst.isFile() || await hardLink(found.abs, fst.nlink, fst.dev, fst.ino)) {
       return { ok: false, reason: 'не файл' }
     }
     const bytes = Buffer.from(await handle.readFile())
