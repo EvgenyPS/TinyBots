@@ -31,6 +31,12 @@ export const SEARCH_LINE_MAX = 300
 export const DIFF_MAX = 256 * 1024
 export const DIFF_FILES_MAX = 20
 export const DIFF_FILE_MAX = 1024 * 1024
+/**
+ * Доля строк, которые дифф имеет право снять с уже существующего файла.
+ * Считается от числа строк исходника. 0.5 — половина. Строго больше — отказ.
+ * Ровно половина ещё проходит. Опустошение файла отвергается отдельно, даже если строк мало.
+ */
+export const DELETE_LINE_RATIO_MAX = 0.5
 
 export const OPEN_PROPOSALS_MAX = 20
 export const PROPOSALS_BYTES_MAX = 256 * 1024 * 1024

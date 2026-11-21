@@ -6,7 +6,7 @@
  * CRLF и BOM исходника сохраняются. Противоречивый маркер «нет перевода строки» — отказ.
  */
 
-import { DIFF_FILE_MAX, DIFF_FILES_MAX, DIFF_MAX } from './limits.js'
+import { DELETE_LINE_RATIO_MAX, DIFF_FILE_MAX, DIFF_FILES_MAX, DIFF_MAX } from './limits.js'
 
 export type AppliedFile = {
   path: string
@@ -218,6 +218,27 @@ function applyOne(file: FileDiff, original: string): { ok: true; text: string } 
   return { ok: true, text }
 }
 
+/**
+ * Пустой итог или убыль числа строк строго больше половины.
+ * Замена строки на строку убыли не даёт: минус в хунке сам по себе не запрет.
+ */
+function deletionRefusal(before: string, after: string): string | null {
+  const beforeBody = before.replace(/\s/g, '')
+  const afterBody = after.replace(/\s/g, '')
+  if (beforeBody.length > 0 && afterBody.length === 0) {
+    return 'файл станет пустым'
+  }
+  const originalLines = splitLf(before).lines.length
+  if (originalLines === 0) {
+    return null
+  }
+  const nextLines = splitLf(after).lines.length
+  if ((originalLines - nextLines) / originalLines > DELETE_LINE_RATIO_MAX) {
+    return 'удалено больше половины файла'
+  }
+  return null
+}
+
 function newlineStyle(bytes: Buffer): { bom: boolean; crlf: boolean; lf: string } {
   const bom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
   const body = bom ? bytes.subarray(3) : bytes
@@ -255,6 +276,12 @@ export function applyUnifiedDiff(
     const applied = applyOne(file, style.lf)
     if (!applied.ok) {
       return applied
+    }
+    if (!file.isNew) {
+      const refusal = deletionRefusal(style.lf, applied.text)
+      if (refusal) {
+        return { ok: false, reason: refusal }
+      }
     }
     let body = applied.text
     if (style.crlf) {

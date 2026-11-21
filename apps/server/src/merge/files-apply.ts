@@ -168,6 +168,7 @@ async function underRoot(root: string, rel: string): Promise<string | null> {
 async function rollback(done: readonly Plan[]): Promise<void> {
   for (const plan of [...done].reverse()) {
     if (plan.created) {
+      // Файла до применения не было. Снимок backup/ не удаляем: его у созданного файла нет.
       await rm(plan.live, { force: true })
       continue
     }
@@ -400,6 +401,7 @@ export async function restoreProjectFiles(input: {
   }
   for (const plan of plans) {
     if (plan.created) {
+      // Живой файл бот сам и добавил. Каталог снимка не трогаем.
       await rm(plan.live, { force: true })
       continue
     }

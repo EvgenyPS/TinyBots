@@ -192,6 +192,7 @@
 | I16 | В лог — имя инструмента, код и число байт. Путей, диффов и ключей в журнале нет. В `chats/` нет вывода инструментов | `apps/server/src/tools/call.ts`, `e2e/i17-proposals.spec.ts` |
 | I17 | Playwright: предложение, модалка, «Применить», «Отклонить», «Откатить», текст `<script>` не исполняется, значок «исполняемый/CI» | `e2e/i17-proposals.spec.ts` |
 | I18 | Документы, `schema:json`, `check-forbidden`, gitleaks, CI из пяти job | этот раздел, `docs/ARCH.md` §13, `docs/files-safety.md`, `README.md` |
+| I19 | Безвозвратное удаление невозможно. Инструмента удаления нет. Дифф с удалением файла, переименованием, опустошением или снятием строго больше половины строк (`DELETE_LINE_RATIO_MAX` = 0.5) отвергается в `propose_patch`. Ровно половина ещё проходит. Git не вызывает rm, clean, reset, branch -D, gc, reflog, filter-* и push --delete. `update-ref -d` только для `refs/heads/tinybots/proposal-<id>` при откате, oid коммита остаётся в json и в базе объектов. `.git` не удаляется. Снимки `backup/` не стираются при apply, revert и чистке применённых. Чистка по сроку и числу снимает только отклонённые и ни разу не применённые. Ответ модели не меняет файл, ветку и `.git` | `apps/server/src/proposals/keep.test.ts`, `apps/server/src/tools/git.guard.test.ts`, `apps/server/src/proposals/git-proposal.test.ts` |
 
 ## Вопросы к владельцу (для Ава в LAUNCHER_PLAN.md)
 1. **F9:** какую цель экономии фиксируем — минус 30% пробуждений на задачу или другую?

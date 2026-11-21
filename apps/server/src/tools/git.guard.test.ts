@@ -15,7 +15,11 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-const BANNED = ['push', 'fetch', 'pull', 'clone', 'remote', 'ls-remote', 'submodule', 'config', 'checkout', 'switch', 'worktree', 'status', 'gc']
+const BANNED = [
+  'push', 'fetch', 'pull', 'clone', 'remote', 'ls-remote', 'submodule', 'config', 'checkout', 'switch',
+  'worktree', 'status', 'gc', 'rm', 'clean', 'reset', 'branch', 'reflog', 'filter-branch', 'filter-repo',
+  'prune', 'rebase', 'stash',
+]
 
 test('I15 запретные подкоманды не запускают процесс', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'tinybots-git-'))
@@ -57,4 +61,38 @@ test('I15 боевое окружение без дома и префикс -c �
     expect(joined, key).toContain(key)
   }
   expect(joined).not.toContain('safe.directory')
+})
+
+test('I19 update-ref снимает только свою ветку, push --delete не запускается', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'tinybots-git-'))
+  dirs.push(root)
+  const oid = 'a'.repeat(40)
+  const zero = '0'.repeat(40)
+  const own = 'refs/heads/tinybots/proposal-p0123456789abcdef'
+  expect(() => assertGitInvocation('update-ref', ['-d', own, oid])).not.toThrow()
+  expect(() => assertGitInvocation('update-ref', [own, oid, zero])).not.toThrow()
+  const foreign = [
+    ['-d', 'refs/heads/main', oid],
+    ['-d', 'refs/heads/tinybots/other', oid],
+    ['refs/heads/main', oid, zero],
+    [own, oid, 'b'.repeat(40)],
+    ['-d', own],
+  ]
+  for (const args of foreign) {
+    expect(() => assertGitInvocation('update-ref', args), args.join(' ')).toThrow(/ссылку/)
+  }
+  let calls = 0
+  const ctx = {
+    bin: '/usr/bin/git',
+    cwd: root,
+    rootReal: root,
+    dataDir: root,
+    hooks: { execFile: async () => { calls += 1; return { stdout: '', stderr: '' } } },
+  }
+  await expect(runGit(ctx, 'push', ['--delete', 'origin', 'main'])).rejects.toThrow(/вне списка/)
+  await expect(runGit(ctx, 'gc', ['--prune=now'])).rejects.toThrow(/вне списка/)
+  await expect(runGit(ctx, 'branch', ['-D', 'main'])).rejects.toThrow(/вне списка/)
+  await expect(runGit(ctx, 'reflog', ['expire', '--all'])).rejects.toThrow(/вне списка/)
+  await expect(runGit(ctx, 'update-ref', ['-d', 'refs/heads/main', oid])).rejects.toThrow(/ссылку/)
+  expect(calls).toBe(0)
 })

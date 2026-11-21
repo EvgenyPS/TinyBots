@@ -321,6 +321,7 @@ test('I13 откат возвращает байты и удаляет новы�
   })
   expect(back.ok).toBe(true)
   await expect(readFile(path.join(project, 'docs', 'fresh.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(path.join(data, 'proposals', made.id, 'post', 'docs', 'fresh.txt'), 'utf8')).toBe('hi\n')
 })
 
 test.skipIf(process.platform === 'win32')('I12 режим +x переживает apply', async () => {

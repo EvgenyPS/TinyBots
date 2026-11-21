@@ -2,7 +2,8 @@
  * FILE: apps/server/src/proposals/store.ts
  * НАЗНАЧЕНИЕ: proposals/ только в data_dir. Папка проекта здесь не открывается.
  * ВХОД: каталог данных и id. Запись через writeAtomic.
- * ВЫХОД: разобранные предложения. Закрытые старше 30 дней и сверх 100 удаляются вместе с каталогом.
+ * ВЫХОД: разобранные предложения. Чистка снимает только отклонённые и ни разу не применённые.
+ * Снимок применённого (applied, reverted) не удаляется ни по сроку, ни по числу.
  * Общий объём больше 256 МиБ — новое предложение не пишется.
  */
 
@@ -124,10 +125,18 @@ function lastAt(item: Proposal): number {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-/** Удаляет закрытые старше 30 дней и лишние сверх 100. applied не трогает. */
+/** Применённое предложение и его снимок чистке не подлежат, даже после отката. */
+function keepsSnapshot(item: Proposal): boolean {
+  if (item.state === 'applied' || item.state === 'reverted' || item.state === 'reverting' || item.state === 'revert_conflict') {
+    return true
+  }
+  return item.history.some((row) => row.state === 'applied' || row.state === 'reverted' || row.state === 'revert_conflict')
+}
+
+/** Удаляет отклонённые и неприменённые старше 30 дней и лишние сверх 100. Снимок применённого не трогает. */
 export async function sweepClosed(dataDir: string, project: string, now: Date): Promise<void> {
   const closed = listProposals(dataDir)
-    .filter((item) => item.project === project && CLOSED.has(item.state))
+    .filter((item) => item.project === project && CLOSED.has(item.state) && !keepsSnapshot(item))
     .sort((a, b) => lastAt(a) - lastAt(b))
   const doomed = new Set<string>()
   for (const item of closed) {

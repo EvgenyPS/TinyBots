@@ -1,6 +1,7 @@
 /**
  * FILE: apps/server/src/tools/git.ts
  * НАЗНАЧЕНИЕ: единственный вызов git. Только plumbing из белого списка, без checkout и сети.
+ * Удаление истории здесь нет. update-ref -d снимает только refs/heads/tinybots/proposal-<id>.
  * ВХОД: абсолютный путь к git, realpath корня, каталог лаунчера как cwd.
  * ВЫХОД: stdout или отказ до запуска процесса. Чужой -c и запретный флаг до execFile не доходят.
  * Окружение собирается с нуля. GIT_* родителя не наследуются. safe.directory не передаётся.
@@ -238,10 +239,34 @@ export function gitPrefix(rootReal: string, hooksPath: string): string[] {
   ]
 }
 
+const PROPOSAL_REF = /^refs\/heads\/tinybots\/proposal-[a-z0-9][a-z0-9-]{0,63}$/
+const GIT_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+const GIT_ZERO = /^(?:0{40}|0{64})$/
+
+/**
+ * update-ref умеет только создать свою ветку с нуля или снять именно её.
+ * Чужой ref, перенос существующей ветки и флаги вроде --no-deref сюда не входят.
+ */
+function assertUpdateRef(args: readonly string[]): void {
+  if (args[0] === '-d') {
+    if (args.length === 3 && PROPOSAL_REF.test(args[1] ?? '') && GIT_OID.test(args[2] ?? '')) {
+      return
+    }
+    throw new Error('git: чужую ссылку удалять нельзя')
+  }
+  if (args.length === 3 && PROPOSAL_REF.test(args[0] ?? '') && GIT_OID.test(args[1] ?? '') && GIT_ZERO.test(args[2] ?? '')) {
+    return
+  }
+  throw new Error('git: чужую ссылку менять нельзя')
+}
+
 /** Отказ до процесса. Префикс -c сюда не приходит: его добавляет обёртка сама. */
 export function assertGitInvocation(command: string, args: readonly string[]): void {
   if (!ALLOWED.has(command)) {
     throw new Error('git: команда вне списка')
+  }
+  if (command === 'update-ref') {
+    assertUpdateRef(args)
   }
   for (const arg of args) {
     if (arg === '-c' || arg.startsWith('--git-dir') || arg.startsWith('--work-tree')) {
