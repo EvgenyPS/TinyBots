@@ -107,12 +107,21 @@ test('I15 юнит: каждый ключ -c и каждая сетевая пе
   expect(env.XDG_CONFIG_HOME).toBeUndefined()
 })
 
-async function markerScript(base: string, name: string): Promise<{ script: string; marker: string }> {
+async function markerScript(base: string, name: string): Promise<{ command: string; program: string; marker: string }> {
   const marker = path.join(base, `${name}.mark`)
-  const script = path.join(base, `${name}.sh`)
-  await writeFile(script, `#!/bin/sh\necho ran > '${marker}'\nexit 1\n`)
-  await chmod(script, 0o755)
-  return { script, marker }
+  const script = path.join(base, `${name}.mjs`)
+  const body = `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, 'ran')\nprocess.exit(1)\n`
+  await writeFile(script, `#!/usr/bin/env node\n${body}`)
+  if (process.platform !== 'win32') {
+    await chmod(script, 0o755)
+  }
+  const command = `node ${script.split(path.sep).join('/')}`
+  if (process.platform !== 'win32') {
+    return { command, program: script, marker }
+  }
+  const program = path.join(base, `${name}.cmd`)
+  await writeFile(program, `@echo off\r\nnode "${script}"\r\nexit /b 1\r\n`)
+  return { command, program, marker }
 }
 
 async function marked(file: string): Promise<boolean> {
@@ -129,8 +138,8 @@ test('I15 частичный клон: отказ текстом, маркер �
   await commitNote(made.repo)
   const oid = git(made.repo, ['rev-parse', 'HEAD:note.txt'])
   await rm(path.join(made.repo, '.git', 'objects', oid.slice(0, 2), oid.slice(2)))
-  const { script, marker } = await markerScript(made.base, 'fetch')
-  git(made.repo, ['config', 'remote.origin.url', `ext::${script}`])
+  const { command, marker } = await markerScript(made.base, 'fetch')
+  git(made.repo, ['config', 'remote.origin.url', `ext::${command}`])
   git(made.repo, ['config', 'remote.origin.promisor', 'true'])
   git(made.repo, ['config', 'extensions.partialclone', 'origin'])
   git(made.repo, ['config', 'protocol.ext.allow', 'always'])
@@ -157,8 +166,8 @@ test('I15 cat-file: оба сетевых слоя сняты — маркер �
   await commitNote(made.repo)
   const oid = git(made.repo, ['rev-parse', 'HEAD:note.txt'])
   await rm(path.join(made.repo, '.git', 'objects', oid.slice(0, 2), oid.slice(2)))
-  const { script, marker } = await markerScript(made.base, 'fetch')
-  git(made.repo, ['config', 'remote.origin.url', `ext::${script}`])
+  const { command, marker } = await markerScript(made.base, 'fetch')
+  git(made.repo, ['config', 'remote.origin.url', `ext::${command}`])
   git(made.repo, ['config', 'remote.origin.promisor', 'true'])
   git(made.repo, ['config', 'extensions.partialclone', 'origin'])
   git(made.repo, ['config', 'protocol.ext.allow', 'always'])
@@ -190,10 +199,10 @@ test('I15 commit-tree: --no-gpg-sign гасит -S, commit.gpgSign сам по �
   await commitNote(made.repo)
   const tree = git(made.repo, ['rev-parse', 'HEAD^{tree}'])
   const parent = git(made.repo, ['rev-parse', 'HEAD'])
-  const { script, marker } = await markerScript(made.base, 'gpg')
+  const { program, marker } = await markerScript(made.base, 'gpg')
   git(made.repo, ['config', 'commit.gpgsign', 'true'])
   git(made.repo, ['config', 'gpg.format', 'openpgp'])
-  git(made.repo, ['config', 'gpg.program', script])
+  git(made.repo, ['config', 'gpg.program', program])
   const real = await realpath(made.repo)
   const probe = async (omit: string[], dropConfig: string[]): Promise<boolean> => {
     await rm(marker, { force: true })
@@ -232,9 +241,9 @@ async function filterCase(nested: boolean): Promise<void> {
   git(made.repo, ['config', 'user.name', 't'])
   git(made.repo, ['add', rel])
   git(made.repo, ['commit', '-q', '-m', 'start'])
-  const { script, marker } = await markerScript(made.base, nested ? 'nested' : 'root')
-  git(made.repo, ['config', 'filter.x.clean', script])
-  git(made.repo, ['config', 'filter.x.smudge', script])
+  const { command, marker } = await markerScript(made.base, nested ? 'nested' : 'root')
+  git(made.repo, ['config', 'filter.x.clean', command])
+  git(made.repo, ['config', 'filter.x.smudge', command])
   const attr = nested ? path.join(made.repo, 'sub', '.gitattributes') : path.join(made.repo, '.gitattributes')
   await writeFile(attr, 'note.txt filter=x\n')
   const real = await realpath(made.repo)
