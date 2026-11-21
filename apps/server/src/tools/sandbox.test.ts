@@ -17,7 +17,11 @@ import { runTool, type ToolRunContext } from './call.js'
 const roots: string[] = []
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  // Два пути одного каталога (mkdtemp и realpath) и параллельный rm на Windows дают EPERM.
+  const dirs = [...new Set(roots.splice(0))]
+  for (const dir of dirs) {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  }
 })
 
 async function layout(): Promise<{ root: string; outside: string; ctx: SandboxContext }> {

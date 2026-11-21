@@ -5,7 +5,8 @@
  * ВЫХОД: абсолютный путь или отказ. Содержимое отказанной цели не читается.
  * Повторно используются requestAllowed, resolveInside не копируется вторым резолвером:
  * проверка строки — requestAllowed и isMergeFilePath, устройство — isReservedDeviceName.
- * Имя с диска берётся из readdir родителя по паре (dev, ino), bigint.
+ * Имя с диска: на Windows realpath (регистр и 8.3), иначе сегмент запроса.
+ * Обход readdir по (dev, ino) остаётся запасным путём, если realpath не совпал с родителем.
  * Между проверкой и open есть крюк: подмена каталога симлинком должна дать отказ.
  */
 
@@ -134,22 +135,31 @@ async function inodeShared(parent: string, dev: bigint, ino: bigint): Promise<bo
 }
 
 async function diskName(parent: string, segment: string): Promise<string | null> {
+  const joined = path.join(parent, segment)
   let st: Awaited<ReturnType<typeof lstat>>
   try {
-    st = await lstat(path.join(parent, segment), { bigint: true })
+    st = await lstat(joined, { bigint: true })
   } catch (error) {
     if (isEnoent(error)) {
       return null
     }
     throw error
   }
+  // Регистрозависимая ФС: успешный lstat уже доказывает точное имя. Соседей не читаем.
+  if (process.platform !== 'win32') {
+    return segment
+  }
+  // realpath на Windows отдаёт написание каталога (регистр, длинное имя вместо 8.3)
+  // одним вызовом. Обход тысяч соседей здесь квадратичный и на CI не успевает.
+  const spelled = await windowsSpelling(parent, joined)
+  if (spelled) {
+    return spelled
+  }
   const dir = await opendir(parent)
   const folded = segment.toLowerCase()
   try {
     for await (const entry of dir) {
-      // Точное имя (на Windows ещё и регистр) не требует lstat каждого соседа.
-      // Иначе обход широкого каталога делает lstat на каждую пару. Ino остаётся для 8.3 и другого написания.
-      if (entry.name === segment || (process.platform === 'win32' && entry.name.toLowerCase() === folded)) {
+      if (entry.name === segment || entry.name.toLowerCase() === folded) {
         return entry.name
       }
       let ent: Awaited<ReturnType<typeof lstat>>
@@ -166,6 +176,21 @@ async function diskName(parent: string, segment: string): Promise<string | null>
     await dir.close().catch(() => undefined)
   }
   return segment
+}
+
+/** Basename от realpath, только если файл остался в том же родителе. Иначе null — зовём обход. */
+async function windowsSpelling(parent: string, joined: string): Promise<string | null> {
+  try {
+    const real = await realpath(joined)
+    const parentReal = await realpath(parent)
+    if (path.dirname(real).toLowerCase() !== parentReal.toLowerCase()) {
+      return null
+    }
+    const base = path.basename(real)
+    return base.length > 0 ? base : null
+  } catch {
+    return null
+  }
 }
 
 function insideLauncher(abs: string, ctx: SandboxContext): boolean {
