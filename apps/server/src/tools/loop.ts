@@ -47,16 +47,38 @@ function addUsage(sum: TokenUsage | null, extra: TokenUsage | null): TokenUsage 
   }
 }
 
-async function withTimeout<T>(job: () => Promise<T>, sleep: (ms: number) => Promise<void>, signal: AbortSignal): Promise<T> {
+/**
+ * Ровно 10 с ещё успех: таймер отказа ставится после таймера самой работы.
+ * 10 с и 1 мс — уже отказ. Число TOOL_TIMEOUT_MS не меняется.
+ */
+export async function withTimeout<T>(job: () => Promise<T>, sleep: (ms: number) => Promise<void>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
     throw new Error('tool_timeout')
   }
-  return Promise.race([
-    job(),
-    sleep(TOOL_TIMEOUT_MS).then(() => {
-      throw new Error('tool_timeout')
-    }),
-  ])
+  const work = job()
+  let settled = false
+  return new Promise<T>((resolve, reject) => {
+    void sleep(TOOL_TIMEOUT_MS).then(() => {
+      if (!settled) {
+        settled = true
+        reject(new Error('tool_timeout'))
+      }
+    })
+    work.then(
+      (value) => {
+        if (!settled) {
+          settled = true
+          resolve(value)
+        }
+      },
+      (error: unknown) => {
+        if (!settled) {
+          settled = true
+          reject(error)
+        }
+      },
+    )
+  })
 }
 
 export async function runToolLoop(input: {

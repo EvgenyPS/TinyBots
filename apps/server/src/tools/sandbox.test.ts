@@ -75,6 +75,9 @@ test('I3 строковые атаки отвергаются до чтения'
   expect(pathShapeReason('ENV~1', 'win32')).not.toBeNull()
   expect(pathShapeReason('GIT~1', 'win32')).not.toBeNull()
   expect(pathShapeReason('note.txt', 'win32')).toBeNull()
+  // Короткое имя 8.3 — правило Windows. На linux та же строка обычное имя файла.
+  expect(pathShapeReason('ENV~1', 'linux')).toBeNull()
+  expect(pathShapeReason('GIT~1', 'linux')).toBeNull()
 })
 
 test('I3 корень и точка читают каталог, выход наружу нет', async () => {
@@ -101,6 +104,16 @@ test('I3 симлинк наружу и внутрь не читается', asy
   expect(inn.ok).toBe(false)
   if (!out.ok) {
     expect(JSON.stringify(out)).not.toContain('CANARY-OUTSIDE')
+  }
+})
+
+test.skipIf(process.platform !== 'win32')('I3 junction на диске не читается', async () => {
+  const { root, outside, ctx } = await layout()
+  await symlink(path.join(outside, 'secret.txt'), path.join(root, 'jump'), 'junction')
+  const got = await readSandboxedFile(ctx, 'jump')
+  expect(got.ok).toBe(false)
+  if (!got.ok) {
+    expect(JSON.stringify(got)).not.toContain('CANARY-OUTSIDE')
   }
 })
 

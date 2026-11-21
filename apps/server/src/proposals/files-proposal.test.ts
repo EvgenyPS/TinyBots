@@ -6,7 +6,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
@@ -321,4 +321,38 @@ test('I13 откат возвращает байты и удаляет новы�
   })
   expect(back.ok).toBe(true)
   await expect(readFile(path.join(project, 'docs', 'fresh.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test.skipIf(process.platform === 'win32')('I12 режим +x переживает apply', async () => {
+  const { project, data } = await world()
+  const file = path.join(project, 'note.txt')
+  await chmod(file, 0o755)
+  const made = await createProposal({
+    projectReal: project,
+    dataDir: data,
+    dataReal: data,
+    launcherCwd: project,
+    configReal: null,
+    respectGitignore: true,
+    projectId: 'demo-keys',
+    botId: 'nora',
+    summary: 'поменять строку',
+    diff: diff('note.txt', 'old', 'new'),
+    now: NOW,
+  })
+  if (!made.ok) {
+    throw new Error('proposal')
+  }
+  const row = readProposal(data, made.id)
+  const applied = await applyProposal({
+    dataDir: data,
+    projectReal: project,
+    launcherCwd: project,
+    id: made.id,
+    patchSha: row?.patch_sha256 ?? '',
+    now: NOW,
+    by: 'owner',
+  })
+  expect(applied.ok).toBe(true)
+  expect((await stat(file)).mode & 0o111).not.toBe(0)
 })

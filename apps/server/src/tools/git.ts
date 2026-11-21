@@ -115,6 +115,14 @@ export type GitHooks = {
   /** Только тест: подложить HOME, не боевой путь. */
   testEnv?: NodeJS.ProcessEnv
   traceFile?: string
+  /** Только тест: снять уже собранные переменные. Продакшен это не вызывает. */
+  testDropEnv?: readonly string[]
+  /** Только тест: не передавать эти ключи -c. */
+  testOmitConfig?: readonly string[]
+  /** Только тест: выкинуть аргументы подкоманды, например --no-gpg-sign. */
+  testOmitArgs?: readonly string[]
+  /** Только тест: вставить аргументы сразу после имени подкоманды. */
+  testPrependArgs?: readonly string[]
 }
 
 export type GitContext = {
@@ -274,7 +282,29 @@ export async function runGit(
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   assertGitInvocation(command, args)
   const hooks = await hooksPath(ctx.dataDir)
-  const prefix = gitPrefix(ctx.rootReal, hooks)
+  let prefix = gitPrefix(ctx.rootReal, hooks)
+  const dropConfig = new Set(ctx.hooks?.testOmitConfig ?? [])
+  if (dropConfig.size > 0) {
+    const kept: string[] = []
+    for (let index = 0; index < prefix.length; index += 1) {
+      const item = prefix[index] ?? ''
+      const next = prefix[index + 1]
+      if (item === '-c' && next && dropConfig.has(next.split('=')[0] ?? '')) {
+        index += 1
+        continue
+      }
+      kept.push(item)
+    }
+    prefix = kept
+  }
+  let commandArgs = [...args]
+  const dropArgs = new Set(ctx.hooks?.testOmitArgs ?? [])
+  if (dropArgs.size > 0) {
+    commandArgs = commandArgs.filter((arg) => !dropArgs.has(arg))
+  }
+  if (ctx.hooks?.testPrependArgs && ctx.hooks.testPrependArgs.length > 0) {
+    commandArgs = [...ctx.hooks.testPrependArgs, ...commandArgs]
+  }
   const gitDir = path.join(ctx.rootReal, '.git')
   const env = buildGitEnv({
     gitDir: opt.gitDir === false ? undefined : gitDir,
@@ -284,7 +314,10 @@ export async function runGit(
     author: opt.author,
     testEnv: ctx.hooks?.testEnv,
   })
-  const full = [...prefix, command, ...args]
+  for (const key of ctx.hooks?.testDropEnv ?? []) {
+    delete env[key]
+  }
+  const full = [...prefix, command, ...commandArgs]
   const exec = ctx.hooks?.execFile ?? ((file, argv, options, input) => execFileBuffer(file, argv, options, input))
   const options = {
     cwd: ctx.cwd,

@@ -183,6 +183,9 @@ test('I2 неизвестный инструмент и лишнее поле н
     expect(names).toContain('list_dir')
     expect(names).toContain('propose_patch')
     expect(names).not.toContain('apply_patch')
+    const follow = mock.bodies[1] ?? ''
+    expect(follow).toContain('аргументы\\"}')
+    expect(follow).not.toContain('"text":')
   } finally {
     await mock.close()
   }

@@ -45,7 +45,6 @@ type Form = {
   sourcePath: string
   allowTools: boolean
   respectGitignore: boolean
-  proposeTools: boolean
   repo: string
   probe: Probe | null
   delivery: 'clipboard' | 'queue'
@@ -149,7 +148,6 @@ function emptyForm(): Form {
     sourcePath: '',
     allowTools: false,
     respectGitignore: true,
-    proposeTools: false,
     repo: '',
     probe: null,
     delivery: 'clipboard',
@@ -744,18 +742,9 @@ export function SetupWizard() {
                 />
                 Не читать файлы из .gitignore
               </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  data-testid="project-tools-propose"
-                  checked={form.proposeTools}
-                  onChange={(event) => setForm({ ...form, proposeTools: event.target.checked })}
-                />
-                Предлагать правки (только у своего бота с base_url, по умолчанию выключено)
-              </label>
-              {form.allowTools || form.proposeTools ? (
+              {form.allowTools ? (
                 <p className="warn-box" data-testid="tools-provider-warning">
-                  Файлы проекта уходят провайдеру, указанному в base_url своего бота. Содержимое не инструкция.
+                  Файлы проекта уходят провайдеру, указанному в base_url своего бота. Содержимое не инструкция. Ключ project_tools мастер не ставит: его пишут в YAML у бота с base_url.
                 </p>
               ) : null}
             </div>
