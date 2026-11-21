@@ -193,6 +193,7 @@ test('жёсткая ссылка на файл вне проекта', async ()
     await handle.close()
   }
   const got = await readSandboxedFile(ctx, 'alias.txt')
+  console.log(`hardlink-outside platform=${process.platform} lstat.nlink=${st.nlink} fstat.nlink=${fstNlink}`)
   if (st.nlink > 1n || fstNlink > 1n) {
     expect(got.ok).toBe(false)
     expect(JSON.stringify(got)).not.toContain('CANARY-OUTSIDE')
