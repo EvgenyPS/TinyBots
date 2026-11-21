@@ -13,7 +13,7 @@ import { idSchema } from '@tinybots/schema'
 import { loadConfigAt, resolveDataDir, selectConfigRequest } from '../config/load.js'
 import type { LaunchOptions } from '../launcher/view.js'
 import { applyProposal, proposalsOf, rejectProposal, revertProposal } from './engine.js'
-import { OWNER_TEXT } from './store.js'
+import { OWNER_TEXT, storageWarning } from './store.js'
 
 const bodySchema = z.strictObject({
   id: idSchema,
@@ -110,7 +110,7 @@ function readDiff(dataDir: string, id: string): string {
   }
 }
 
-export function getProposals(root: string, options: LaunchOptions | undefined, project: string): ProposalReply {
+export async function getProposals(root: string, options: LaunchOptions | undefined, project: string): Promise<ProposalReply> {
   const loaded = loadConfigAt(root, selectConfigRequest(root, options?.configPath))
   if (!loaded.ok) {
     return { status: 422, body: { ok: false, error: 'config', message: loaded.reason } }
@@ -133,5 +133,5 @@ export function getProposals(root: string, options: LaunchOptions | undefined, p
     files: item.files.map((file) => ({ path: file.path, is_new: file.base_sha256 === null })),
     diff: readDiff(dataDir.dir, item.id),
   }))
-  return { status: 200, body: { ok: true, proposals: items } }
+  return { status: 200, body: { ok: true, proposals: items, storage_warning: await storageWarning(dataDir.dir) } }
 }

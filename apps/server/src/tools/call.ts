@@ -28,6 +28,8 @@ import {
 import { pathDenied, segmentDenied } from './names.js'
 import { gitignoreDenies } from './gitignore.js'
 import {
+  clearInodeCensus,
+  loadInodeCensus,
   readSandboxedFile,
   resolveToolPath,
   type SandboxContext,
@@ -161,7 +163,7 @@ async function readFileTool(ctx: ToolRunContext, raw: z.infer<typeof readArgs>):
   return JSON.stringify({ ok: true, path: raw.path, text: body, lines: slice.length })
 }
 
-async function searchTool(ctx: ToolRunContext, query: string, rel: string): Promise<string> {
+async function searchTool(ctx: ToolRunContext, query: string, rel: string, signal?: AbortSignal): Promise<string> {
   if (query.length < SEARCH_QUERY_MIN || query.length > SEARCH_QUERY_MAX) {
     return fail('длина запроса')
   }
@@ -175,7 +177,12 @@ async function searchTool(ctx: ToolRunContext, query: string, rel: string): Prom
   let bytes = 0
   const stack = [root.abs]
   const relOf = new Map<string, string>([[root.abs, root.rel]])
+  await loadInodeCensus(ctx.sandbox)
+  try {
   while (stack.length > 0) {
+    if (signal?.aborted) {
+      throw new Error('tool_timeout')
+    }
     const dirAbs = stack.pop()
     if (!dirAbs) {
       break
@@ -241,17 +248,29 @@ async function searchTool(ctx: ToolRunContext, query: string, rel: string): Prom
     }
   }
   return JSON.stringify({ ok: true, matches })
+  } finally {
+    clearInodeCensus(ctx.sandbox)
+  }
 }
 
-export async function runTool(ctx: ToolRunContext, name: string, argsText: string, hooks?: SandboxHooks): Promise<string> {
+export async function runTool(
+  ctx: ToolRunContext,
+  name: string,
+  argsText: string,
+  hooks?: SandboxHooks,
+  signal?: AbortSignal,
+): Promise<string> {
   void hooks
-  const body = await dispatchTool(ctx, name, argsText)
+  if (signal?.aborted) {
+    throw new Error('tool_timeout')
+  }
+  const body = await dispatchTool(ctx, name, argsText, signal)
   const code = body.includes('"ok":true') ? 'ok' : 'deny'
   logSafe(`tool: ${name} ${code} ${Buffer.byteLength(body)}`)
   return body
 }
 
-async function dispatchTool(ctx: ToolRunContext, name: string, argsText: string): Promise<string> {
+async function dispatchTool(ctx: ToolRunContext, name: string, argsText: string, signal?: AbortSignal): Promise<string> {
   if (!KNOWN.has(name)) {
     return fail('неизвестный инструмент')
   }
@@ -271,7 +290,7 @@ async function dispatchTool(ctx: ToolRunContext, name: string, argsText: string)
   }
   if (name === 'search') {
     const args = searchArgs.safeParse(parsed)
-    return args.success ? searchTool(ctx, args.data.query, args.data.path ?? '') : fail('аргументы')
+    return args.success ? searchTool(ctx, args.data.query, args.data.path ?? '', signal) : fail('аргументы')
   }
   if (ctx.level !== 'propose') {
     return fail('предложение выключено')

@@ -62,6 +62,7 @@ describe('I14 переходы предложения', () => {
     ['applying', 'applied'],
     ['applying', 'conflict'],
     ['applied', 'reverting'],
+    ['applied', 'revert_conflict'],
     ['reverting', 'reverted'],
     ['reverting', 'revert_conflict'],
     ['reverting', 'applied'],

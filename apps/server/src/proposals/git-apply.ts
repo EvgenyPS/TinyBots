@@ -20,6 +20,23 @@ export type GitKill = {
   afterRef?: () => void
 }
 
+/** Совпадение summary с целой строкой сообщения или с ключом/значением трейлера. */
+function summaryLeaked(message: string, summary: string): boolean {
+  if (summary.length === 0) {
+    return false
+  }
+  for (const line of message.split('\n')) {
+    if (line === summary) {
+      return true
+    }
+    const trailer = /^([A-Za-z0-9-]+):\s*(.*)$/u.exec(line)
+    if (trailer && (trailer[1] === summary || trailer[2] === summary)) {
+      return true
+    }
+  }
+  return false
+}
+
 function move(item: Proposal, state: Proposal['state'], at: string, by: string, why: string): Proposal {
   if (!canProposalTransition(item.state, state)) {
     return item
@@ -177,7 +194,8 @@ export async function applyGitProposal(input: {
       '',
       ...current.files.map((file) => file.path),
     ].join('\n')
-    if (message.includes(current.summary)) {
+    // Подстрока даёт ложный 409: «bot» есть в шаблоне. Сверяем целую строку и трейлер Key: value.
+    if (summaryLeaked(message, current.summary)) {
       return fail('conflict', applying)
     }
     const made = (await input.git.commitTree(tree, gitMeta.head_commit, message)).stdout.trim()

@@ -37,8 +37,18 @@ type Bot = {
   provider?: string | null
   model?: string | null
   usage_label?: string | null
+  project_tools?: 'off' | 'read' | 'propose' | null
 }
-type Project = { id: string; title: string; letter: string; lead_id: string; lead_name: string; has_git?: boolean }
+type Project = {
+  id: string
+  title: string
+  letter: string
+  lead_id: string
+  lead_name: string
+  has_git?: boolean
+  allow_bot_tools?: boolean
+  respect_gitignore?: boolean
+}
 type Chat = {
   id: string
   project_id: string
@@ -188,6 +198,72 @@ function EmptyState(props: { kind: 'projects' | 'bots' | 'notes' }) {
   )
 }
 
+function BotTools(props: {
+  bot: Bot
+  project: Project
+  csrf: string
+  onDone: () => void
+}) {
+  const [level, setLevel] = useState<'off' | 'read' | 'propose'>(props.bot.project_tools ?? 'off')
+  const [allow, setAllow] = useState(props.project.allow_bot_tools === true)
+  const [ignore, setIgnore] = useState(props.project.respect_gitignore !== false)
+  const [note, setNote] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  async function save() {
+    if (!props.csrf || busy) {
+      return
+    }
+    setBusy(true)
+    setNote(null)
+    try {
+      const res = await fetch('/api/bots/tools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': props.csrf },
+        body: JSON.stringify({
+          bot_id: props.bot.id,
+          project_id: props.project.id,
+          project_tools: level,
+          allow_bot_tools: allow,
+          respect_gitignore: ignore,
+        }),
+      })
+      if (!res.ok) {
+        setNote('Не записалось')
+        return
+      }
+      setNote('Записано')
+      props.onDone()
+    } catch {
+      setNote('Не записалось')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div data-testid="bot-tools">
+      <h4>Доступ к папке</h4>
+      <label className="field">
+        <span>Инструменты этого бота</span>
+        <select data-testid="bot-tools-level" value={level} onChange={(event) => setLevel(event.target.value === 'read' || event.target.value === 'propose' ? event.target.value : 'off')}>
+          <option value="off">выключен</option>
+          <option value="read">только чтение</option>
+          <option value="propose">чтение и предложения</option>
+        </select>
+      </label>
+      <label className="check">
+        <input data-testid="bot-tools-allow" type="checkbox" checked={allow} onChange={(event) => setAllow(event.target.checked)} />
+        Разрешить инструментам читать эту папку
+      </label>
+      <label className="check">
+        <input data-testid="bot-tools-ignore" type="checkbox" checked={ignore} onChange={(event) => setIgnore(event.target.checked)} />
+        Не читать файлы из .gitignore
+      </label>
+      <button type="button" className="btn" data-testid="bot-tools-save" disabled={busy} onClick={() => void save()}>Записать</button>
+      {note ? <p className="sub" data-testid="bot-tools-note">{note}</p> : null}
+    </div>
+  )
+}
+
 export function Dashboard() {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [tick, setTick] = useState(0)
@@ -198,6 +274,7 @@ export function Dashboard() {
   const [csrf, setCsrf] = useState('')
   const [mergeId, setMergeId] = useState<string | null>(null)
   const [proposals, setProposals] = useState<ProposalView[]>([])
+  const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const [proposalId, setProposalId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [revertOpen, setRevertOpen] = useState(false)
@@ -263,10 +340,12 @@ export function Dashboard() {
         if (cancelled || !body || typeof body !== 'object') {
           return
         }
-        const list = (body as { proposals?: unknown }).proposals
+        const list = (body as { proposals?: unknown; storage_warning?: unknown }).proposals
+        const warning = (body as { storage_warning?: unknown }).storage_warning
         if (Array.isArray(list)) {
           setProposals(list as ProposalView[])
         }
+        setStorageWarning(typeof warning === 'string' && warning.length > 0 ? warning : null)
       })
       .catch(() => undefined)
     return () => {
@@ -489,6 +568,7 @@ export function Dashboard() {
               Предложения ({openProposals.length})
             </button>
             {openProposals.length === 0 ? <span data-testid="proposals-reason">Нет предложений</span> : null}
+            {storageWarning ? <p className="warn-box" data-testid="storage-warning">{storageWarning}</p> : null}
             <button
               type="button"
               className="btn"
@@ -564,6 +644,15 @@ export function Dashboard() {
                     ) : null}
                     {noteOf(data, selected.id)?.question_to_owner ? (
                       <p className="question">{noteOf(data, selected.id)?.question_to_owner}</p>
+                    ) : null}
+                    {selected.transport === 'api' && project ? (
+                      <BotTools
+                        key={`${selected.id}:${project.id}`}
+                        bot={selected}
+                        project={project}
+                        csrf={csrf}
+                        onDone={() => setTick((n) => n + 1)}
+                      />
                     ) : null}
                     <h4>Задачи</h4>
                     <ul className="plain">

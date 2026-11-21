@@ -24,7 +24,22 @@ type SetupInfo = {
 
 type Probe = { path: string; git: boolean; warning: string | null }
 
-type BotForm = { name: string; role: string; id: string; avatar: string; idTouched: boolean }
+type ToolLevel = 'off' | 'read' | 'propose'
+
+type BotForm = {
+  name: string
+  role: string
+  id: string
+  avatar: string
+  idTouched: boolean
+  api: boolean
+  instructions: string
+  provider: string
+  model: string
+  baseUrl: string
+  apiKeyEnv: string
+  projectTools: ToolLevel
+}
 
 type Form = {
   ownerName: string
@@ -125,8 +140,23 @@ function safeTarget(value: string): string {
 }
 
 function emptyBot(): BotForm {
-  return { name: '', role: '', id: '', avatar: '', idTouched: false }
+  return {
+    name: '',
+    role: '',
+    id: '',
+    avatar: '',
+    idTouched: false,
+    api: false,
+    instructions: '',
+    provider: 'deepseek',
+    model: '',
+    baseUrl: '',
+    apiKeyEnv: '',
+    projectTools: 'off',
+  }
 }
+
+const API_KEY_ENV = /^[A-Z][A-Z0-9_]*_API_KEY$/
 
 function emptyForm(): Form {
   return {
@@ -202,6 +232,17 @@ function validate(step: string, form: Form): string | null {
       }
       if (ids.has(bot.id.trim())) {
         return 'Id ботов должны различаться'
+      }
+      if (bot.api) {
+        if (bot.instructions.trim().length === 0 || bot.model.trim().length === 0) {
+          return 'Своему боту нужны инструкции и модель'
+        }
+        if (!API_KEY_ENV.test(bot.apiKeyEnv.trim())) {
+          return 'Имя ключа — переменная вида NAME_API_KEY'
+        }
+        if (bot.provider === 'other' && bot.baseUrl.trim().length === 0) {
+          return 'Для своего провайдера нужен base_url'
+        }
       }
       ids.add(bot.id.trim())
       if (bot.avatar.trim().length > 0 && !contained(bot.avatar.trim())) {
@@ -304,6 +345,16 @@ function buildConfig(form: Form): { ok: true; config: Record<string, unknown> } 
     }
     if (bot.id.trim() === form.executor) {
       row.executor_for_merge = true
+    }
+    if (bot.api) {
+      row.instructions = bot.instructions.trim()
+      row.provider = bot.provider.trim()
+      row.model = bot.model.trim()
+      row.api_key_env = bot.apiKeyEnv.trim()
+      row.project_tools = bot.projectTools
+      if (bot.baseUrl.trim().length > 0) {
+        row.base_url = bot.baseUrl.trim()
+      }
     }
     return row
   })
@@ -598,6 +649,55 @@ export function SetupWizard() {
                     <span>Аватар, можно пустым</span>
                     <input data-testid={`bot-avatar-${botIndex}`} value={bot.avatar} autoComplete="off" onChange={(event) => updateBot(botIndex, { avatar: event.target.value })} />
                   </label>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      data-testid={`bot-api-${botIndex}`}
+                      checked={bot.api}
+                      onChange={(event) => updateBot(botIndex, { api: event.target.checked })}
+                    />
+                    Свой API-бот
+                  </label>
+                  {bot.api ? (
+                    <div>
+                      <label className="field">
+                        <span>Инструкции</span>
+                        <textarea data-testid={`bot-instructions-${botIndex}`} value={bot.instructions} onChange={(event) => updateBot(botIndex, { instructions: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Провайдер</span>
+                        <select data-testid={`bot-provider-${botIndex}`} value={bot.provider} onChange={(event) => updateBot(botIndex, { provider: event.target.value })}>
+                          <option value="deepseek">deepseek</option>
+                          <option value="qwen">qwen</option>
+                          <option value="other">другой</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Модель</span>
+                        <input data-testid={`bot-model-${botIndex}`} value={bot.model} autoComplete="off" onChange={(event) => updateBot(botIndex, { model: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Имя переменной ключа</span>
+                        <input data-testid={`bot-key-${botIndex}`} value={bot.apiKeyEnv} autoComplete="off" onChange={(event) => updateBot(botIndex, { apiKeyEnv: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>base_url, можно пустым для deepseek и qwen</span>
+                        <input data-testid={`bot-base-${botIndex}`} value={bot.baseUrl} autoComplete="off" onChange={(event) => updateBot(botIndex, { baseUrl: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Доступ к папке проекта</span>
+                        <select
+                          data-testid={`bot-tools-${botIndex}`}
+                          value={bot.projectTools}
+                          onChange={(event) => updateBot(botIndex, { projectTools: event.target.value === 'read' || event.target.value === 'propose' ? event.target.value : 'off' })}
+                        >
+                          <option value="off">выключен</option>
+                          <option value="read">только чтение</option>
+                          <option value="propose">чтение и предложения</option>
+                        </select>
+                      </label>
+                    </div>
+                  ) : null}
                   {form.bots.length > 1 ? (
                     <button type="button" className="btn" onClick={() => setForm((prev) => ({ ...prev, bots: prev.bots.filter((_, i) => i !== botIndex) }))}>
                       Убрать
@@ -605,7 +705,7 @@ export function SetupWizard() {
                   ) : null}
                 </div>
               ))}
-              <p className="sub">Свой бот на ключе задаётся в config.yaml: инструкции, провайдер, модель, base_url и имя переменной. Значение ключа остаётся в .env.</p>
+              <p className="sub">Ключ остаётся в .env. В конфиг пишется только имя переменной. У бота Grok доступа к папке нет.</p>
               {form.bots.length < 8 ? (
                 <button type="button" className="btn" onClick={() => setForm((prev) => ({ ...prev, bots: [...prev.bots, emptyBot()] }))}>
                   Ещё бот
@@ -744,7 +844,7 @@ export function SetupWizard() {
               </label>
               {form.allowTools ? (
                 <p className="warn-box" data-testid="tools-provider-warning">
-                  Файлы проекта уходят провайдеру, указанному в base_url своего бота. Содержимое не инструкция. Ключ project_tools мастер не ставит: его пишут в YAML у бота с base_url.
+                  Файлы проекта уходят провайдеру своего бота. Содержимое не инструкция. Доступ задаётся у API-бота: выключен, чтение или предложения.
                 </p>
               ) : null}
             </div>

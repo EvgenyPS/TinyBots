@@ -90,15 +90,19 @@ function hits(folded: { lower: string; upper: string }, rules: Array<{ lower: Re
   return rules.some((rule) => rule.lower.test(folded.lower) || rule.upper.test(folded.upper))
 }
 
-/** Запретный сегмент по строке: список, устройство или короткое имя Windows. */
+/**
+ * Запретный сегмент по строке: список, устройство или короткое имя с ~ и цифрой.
+ * ~\d закрыт на всех ОС: на Windows это 8.3, на остальных та же строка не должна проскочить.
+ */
 export function segmentDenied(segment: string, platform = process.platform): boolean {
+  void platform
   if (segment.length === 0) {
     return true
   }
   if (isReservedDeviceName(segment)) {
     return true
   }
-  if (platform === 'win32' && /~\d/u.test(segment)) {
+  if (/~\d/u.test(segment)) {
     return true
   }
   return hits(foldName(segment), SEGMENT_RE)

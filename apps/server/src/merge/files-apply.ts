@@ -338,6 +338,22 @@ export async function acceptProjectFiles(input: {
     }
     try {
       await rollback(done)
+      // beforeWrite мог испортить ещё не заменённый файл. Снимок уже лежит в backup/.
+      const pending = plans.filter((plan) => !done.includes(plan) && !plan.created)
+      for (const plan of pending) {
+        try {
+          await lstat(plan.backup)
+        } catch {
+          continue
+        }
+        await assertPathNotSymlink(plan.backup)
+        const bytes = await readNoFollow(plan.backup)
+        await assertPathNotSymlink(plan.live)
+        await writeAtomic(plan.live, bytes, {
+          beforeCommit: () => assertPathNotSymlink(plan.live),
+          mode: plan.mode,
+        })
+      }
     } catch (rollbackError) {
       const why = rollbackError instanceof Error ? rollbackError.message : 'сбой отката'
       throw new Error(`сбой отката: ${why}`)

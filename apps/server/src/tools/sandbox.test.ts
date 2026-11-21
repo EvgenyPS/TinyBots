@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { compileGitignore } from './gitignore.js'
-import { pathShapeReason, readSandboxedFile, resolveToolPath, type SandboxContext } from './sandbox.js'
+import { pathShapeReason, readSandboxedFile, resolveToolPath, spelledName, type SandboxContext } from './sandbox.js'
 import { runTool, type ToolRunContext } from './call.js'
 
 const roots: string[] = []
@@ -84,9 +84,9 @@ test('I3 строковые атаки отвергаются до чтения'
   expect(pathShapeReason('ENV~1', 'win32')).not.toBeNull()
   expect(pathShapeReason('GIT~1', 'win32')).not.toBeNull()
   expect(pathShapeReason('note.txt', 'win32')).toBeNull()
-  // Короткое имя 8.3 — правило Windows. На linux та же строка обычное имя файла.
-  expect(pathShapeReason('ENV~1', 'linux')).toBeNull()
-  expect(pathShapeReason('GIT~1', 'linux')).toBeNull()
+  // Короткое имя с ~ и цифрой закрыто на любой ОС, не только на Windows.
+  expect(pathShapeReason('ENV~1', 'linux')).not.toBeNull()
+  expect(pathShapeReason('GIT~1', 'linux')).not.toBeNull()
 })
 
 test('I3 корень и точка читают каталог, выход наружу нет', async () => {
@@ -112,6 +112,7 @@ test('I3 симлинк наружу и внутрь не читается', asy
   expect(out.ok).toBe(false)
   expect(inn.ok).toBe(false)
   if (!out.ok) {
+    expect(out.reason).toBe('ссылка')
     expect(JSON.stringify(out)).not.toContain('CANARY-OUTSIDE')
   }
 })
@@ -126,23 +127,48 @@ test.skipIf(process.platform !== 'win32')('I3 junction на диске не чи
   }
 })
 
-test('I3 TOCTOU: каталог стал симлинком между проверкой и open', async () => {
-  const { root, outside, ctx } = await layout()
+test('I3 TOCTOU: каталог стал симлинком на тот же файл', async () => {
+  const { root, ctx } = await layout()
+  // Файл тот же: nlink остаётся 1, inode не меняется. Ловит только повторный обход сегментов.
   const got = await readSandboxedFile(ctx, 'sub/inner.txt', {
     beforeOpen: async () => {
       const live = path.join(root, 'sub')
-      const parked = path.join(root, 'sub-parked')
-      await rm(parked, { recursive: true, force: true }).catch(() => undefined)
-      // Переименовать каталог и поставить на его место ссылку наружу.
+      const parked = path.join(root, 'sub-real')
       const { rename } = await import('node:fs/promises')
       await rename(live, parked)
-      await symlink(outside, live)
+      await symlink(parked, live)
     },
   })
   expect(got.ok).toBe(false)
   if (!got.ok) {
-    expect(JSON.stringify(got)).not.toContain('CANARY-OUTSIDE')
+    expect(got.reason).toBe('подмена')
   }
+})
+
+test('I3 TOCTOU: файл заменили другим до чтения', async () => {
+  const { root, ctx } = await layout()
+  const got = await readSandboxedFile(ctx, 'note.txt', {
+    beforeOpen: async () => {
+      const { rename } = await import('node:fs/promises')
+      await rename(path.join(root, 'note.txt'), path.join(root, 'note-parked.txt'))
+      await writeFile(path.join(root, 'note.txt'), 'CANARY-SWAP')
+    },
+  })
+  expect(got.ok).toBe(false)
+  expect(JSON.stringify(got)).not.toContain('CANARY-SWAP')
+})
+
+test('ino 0 не подставляет чужое имя', () => {
+  const name = spelledName('note.txt', { dev: 1n, ino: 0n }, [{ name: '.env', dev: 1n, ino: 0n }], 'linux')
+  expect(name).toBe('note.txt')
+})
+
+test('I6 hardlink в другом каталоге не читается', async () => {
+  const { root, ctx } = await layout()
+  await mkdir(path.join(root, 'other'))
+  await link(path.join(root, 'note.txt'), path.join(root, 'other', 'alias.txt'))
+  const got = await readSandboxedFile(ctx, 'note.txt')
+  expect(got.ok).toBe(false)
 })
 
 test('I4 denylist по строке и по диску, list и search молчат', async () => {

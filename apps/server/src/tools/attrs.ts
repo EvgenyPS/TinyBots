@@ -28,6 +28,10 @@ function matches(pattern: string, relFromFile: string): boolean {
   if (pattern.includes('[') || pattern.includes('?') || pattern.includes('**')) {
     return true
   }
+  // В gitattributes одна звёздочка — все файлы каталога, не буквальное имя «*».
+  if (pattern === '*') {
+    return base.length > 0
+  }
   if (pattern.startsWith('*.')) {
     return base.endsWith(pattern.slice(1))
   }
@@ -35,6 +39,10 @@ function matches(pattern: string, relFromFile: string): boolean {
     return rel === pattern || rel.endsWith(`/${pattern}`) || rel.startsWith(`${pattern}/`)
   }
   return base === pattern || rel.split('/').includes(pattern)
+}
+
+function benignAttr(name: string): boolean {
+  return name === 'text' || name === 'eol' || name === 'diff' || name === 'merge' || name.startsWith('linguist-')
 }
 
 function applyLine(effect: Effect, line: string, relFromFile: string): void {
@@ -52,20 +60,23 @@ function applyLine(effect: Effect, line: string, relFromFile: string): void {
     return
   }
   for (const attr of parts.slice(1)) {
-    if (attr.startsWith('-')) {
-      const name = attr.slice(1)
+    const unset = attr.startsWith('-') || attr.startsWith('!')
+    const raw = unset ? attr.slice(1) : attr
+    const eq = raw.indexOf('=')
+    const name = (eq === -1 ? raw : raw.slice(0, eq)).toLowerCase()
+    const value = eq === -1 ? '' : raw.slice(eq + 1)
+    if (unset) {
       if (name === 'filter') {
         effect.filter = null
       } else if (name === 'ident') {
         effect.ident = false
-      } else if (name === 'text') {
-        effect.odd = false
+      } else if (name === 'eol') {
+        effect.eol = null
+      } else if (!benignAttr(name)) {
+        effect.odd = true
       }
       continue
     }
-    const eq = attr.indexOf('=')
-    const name = (eq === -1 ? attr : attr.slice(0, eq)).toLowerCase()
-    const value = eq === -1 ? '' : attr.slice(eq + 1)
     if (name === 'filter') {
       effect.filter = value
       continue
@@ -82,7 +93,7 @@ function applyLine(effect: Effect, line: string, relFromFile: string): void {
       effect.eol = value.toLowerCase()
       continue
     }
-    if (name === 'text') {
+    if (benignAttr(name)) {
       continue
     }
     effect.odd = true

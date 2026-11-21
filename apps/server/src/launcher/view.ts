@@ -29,6 +29,7 @@ export type LauncherBot = {
   provider: string | null
   model: string | null
   usage_label: string | null
+  project_tools: 'off' | 'read' | 'propose' | null
 }
 
 export type LauncherProject = {
@@ -39,6 +40,8 @@ export type LauncherProject = {
   lead_name: string
   merge_executor: string
   has_git: boolean
+  allow_bot_tools: boolean
+  respect_gitignore: boolean
 }
 
 export type LauncherChat = {
@@ -277,6 +280,8 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
       lead_name: nameOf(names, project.lead),
       merge_executor: project.merge_executor,
       has_git: Boolean(project.source.git?.repo),
+      allow_bot_tools: project.allow_bot_tools === true,
+      respect_gitignore: project.respect_gitignore !== false,
     })),
     bots: config.bots.map((bot) => ({
       id: bot.id,
@@ -288,6 +293,7 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
       provider: isApiBot(bot) ? bot.provider : null,
       model: isApiBot(bot) ? bot.model : null,
       usage_label: isApiBot(bot) ? usageLabel(dataDir.dir, bot.api_key_env) : null,
+      project_tools: isApiBot(bot) ? bot.project_tools : null,
     })),
     chats: config.projects.flatMap((project) =>
       project.chats.map((chat) => ({

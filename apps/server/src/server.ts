@@ -26,8 +26,10 @@ import path from 'node:path'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { serve, type HttpBindings, type ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
+import { logSafe } from './redact.js'
 import type { Server } from 'node:http'
 import { BIND_HOST } from './bind.js'
+import { saveBotTools } from './config/bot-tools.js'
 import { describeSetup, saveSetup } from './config/setup.js'
 import { inspectSource } from './config/source-check.js'
 import { newCsrfToken, tokensMatch } from './csrf.js'
@@ -54,6 +56,8 @@ export type RunningServer = {
 export type AppOptions = LaunchOptions & {
   /** Порт, который процесс уже занял. Пока 0 — ни один Host не подходит. */
   boundPort?: { current: number }
+  /** Только тест: маршрут, который бросает эту строку. В бою не задаётся. */
+  testThrow?: string
 }
 
 function hostFromContext(c: { req: { header: (name: string) => string | undefined }; env: HttpBindings }): string | undefined {
@@ -78,7 +82,8 @@ function isWrite(method: string, pathname: string): boolean {
     || pathname === '/api/brief/send'
     || pathname === '/api/proposals/apply'
     || pathname === '/api/proposals/reject'
-    || pathname === '/api/proposals/revert'
+    ||     pathname === '/api/proposals/revert'
+    || pathname === '/api/bots/tools'
   )
 }
 
@@ -138,8 +143,18 @@ function queueWrites(): <T extends QueuedReply>(job: () => Promise<T>) => Promis
   }
 }
 
+/** Ответ без стека и без текста исключения: там бывают абсолютные пути. */
+export function httpErrorBody(): { error: 'internal' } {
+  return { error: 'internal' }
+}
+
 export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }> {
   const app = new Hono<{ Bindings: HttpBindings }>()
+  app.onError((err, c) => {
+    const name = err instanceof Error ? err.name : 'error'
+    logSafe(`http: ${name}`)
+    return c.json(httpErrorBody(), 500)
+  })
   const root = repoRoot()
   const csrf = newCsrfToken()
   const boundPort = options?.boundPort ?? { current: 0 }
@@ -387,9 +402,13 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     return c.json(saved.body, saved.status)
   })
 
-  app.get('/api/proposals', (c) => {
-    const sent = getProposals(root, options, c.req.query('project') ?? '')
+  app.get('/api/proposals', async (c) => {
+    const sent = await getProposals(root, options, c.req.query('project') ?? '')
     return c.json(sent.body, sent.status)
+  })
+
+  app.post('/api/bots/tools', async (c) => {
+    return proposalPost(c, (payload) => setupQueue(() => saveBotTools(root, options, payload)), csrf)
   })
 
   app.post('/api/proposals/apply', async (c) => {
@@ -417,6 +436,12 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
   if (hasWeb) {
     const relativeDist = path.relative(process.cwd(), webDist)
     app.use('/*', serveStatic({ root: relativeDist }))
+  }
+
+  if (options?.testThrow) {
+    app.get('/api/boom', () => {
+      throw new Error(options.testThrow)
+    })
   }
 
   app.get('*', async (c) => {

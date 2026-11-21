@@ -14,7 +14,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { repoRoot } from '../root.js'
 import { deliverChat } from '../llm/turn.js'
 import { createProposal } from '../proposals/engine.js'
-import { readProposal } from '../proposals/store.js'
+import { readProposal, storageWarning } from '../proposals/store.js'
 import { runTool, type ToolRunContext } from './call.js'
 import { applyUnifiedDiff, parseUnifiedDiff } from './diff.js'
 import {
@@ -27,6 +27,7 @@ import {
   MODEL_REQUEST_LIMIT,
   OPEN_PROPOSALS_MAX,
   PROPOSALS_BYTES_MAX,
+  PROPOSALS_BYTES_WARN,
   READ_CALL_MAX,
   READ_FILE_MAX,
   READ_LINES_MAX,
@@ -586,6 +587,8 @@ test('I5 хранение: 20 открытых, 256 МиБ и чистка за�
   }
   const fitted = await createProposal(proposalInput(fatReal, fat.data, 'влезает'))
   expect(fitted.ok).toBe(true)
+  expect(PROPOSALS_BYTES_WARN).toBeLessThan(PROPOSALS_BYTES_MAX)
+  expect(await storageWarning(fat.data)).toContain('256 МиБ')
   const grown = openSync(pad, 'r+')
   try {
     ftruncateSync(grown, PROPOSALS_BYTES_MAX)
@@ -593,7 +596,10 @@ test('I5 хранение: 20 открытых, 256 МиБ и чистка за�
     closeSync(grown)
   }
   const tooBig = await createProposal(proposalInput(fatReal, fat.data, 'не влезает'))
-  expect(tooBig).toMatchObject({ ok: false, error: 'каталог предложений больше 256 МиБ' })
+  expect(tooBig).toMatchObject({
+    ok: false,
+    error: 'каталог предложений больше 256 МиБ. Снимки применённых правок сервер не удаляет: уберите старые папки proposals вручную.',
+  })
 
   const sweep = await scratch()
   const sweepProject = path.join(sweep.root, 'proj')

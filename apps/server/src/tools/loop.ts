@@ -51,34 +51,49 @@ function addUsage(sum: TokenUsage | null, extra: TokenUsage | null): TokenUsage 
  * Ровно 10 с ещё успех: таймер отказа ставится после таймера самой работы.
  * 10 с и 1 мс — уже отказ. Число TOOL_TIMEOUT_MS не меняется.
  */
-export async function withTimeout<T>(job: () => Promise<T>, sleep: (ms: number) => Promise<void>, signal: AbortSignal): Promise<T> {
+export async function withTimeout<T>(
+  job: (signal: AbortSignal) => Promise<T>,
+  sleep: (ms: number) => Promise<void>,
+  signal: AbortSignal,
+): Promise<T> {
   if (signal.aborted) {
     throw new Error('tool_timeout')
   }
-  const work = job()
+  const child = new AbortController()
+  const onParent = (): void => {
+    child.abort()
+  }
+  signal.addEventListener('abort', onParent, { once: true })
+  // Сначала работа: её таймер на ровно 10 с срабатывает раньше таймера отказа.
+  const work = job(child.signal)
   let settled = false
-  return new Promise<T>((resolve, reject) => {
-    void sleep(TOOL_TIMEOUT_MS).then(() => {
-      if (!settled) {
-        settled = true
-        reject(new Error('tool_timeout'))
-      }
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      void sleep(TOOL_TIMEOUT_MS).then(() => {
+        if (!settled) {
+          settled = true
+          child.abort()
+          reject(new Error('tool_timeout'))
+        }
+      })
+      work.then(
+        (value) => {
+          if (!settled) {
+            settled = true
+            resolve(value)
+          }
+        },
+        (error: unknown) => {
+          if (!settled) {
+            settled = true
+            reject(error)
+          }
+        },
+      )
     })
-    work.then(
-      (value) => {
-        if (!settled) {
-          settled = true
-          resolve(value)
-        }
-      },
-      (error: unknown) => {
-        if (!settled) {
-          settled = true
-          reject(error)
-        }
-      },
-    )
-  })
+  } finally {
+    signal.removeEventListener('abort', onParent)
+  }
 }
 
 export async function runToolLoop(input: {
@@ -151,7 +166,7 @@ export async function runToolLoop(input: {
         calls += 1
         let raw: string
         try {
-          raw = await withTimeout(() => runTool(input.ctx, call.name, call.arguments), sleep, deadline.signal)
+          raw = await withTimeout((signal) => runTool(input.ctx, call.name, call.arguments, undefined, signal), sleep, deadline.signal)
         } catch {
           raw = JSON.stringify({ ok: false, error: 'инструмент дольше 10 с' })
         }

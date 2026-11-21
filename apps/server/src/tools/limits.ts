@@ -40,6 +40,8 @@ export const DELETE_LINE_RATIO_MAX = 0.5
 
 export const OPEN_PROPOSALS_MAX = 20
 export const PROPOSALS_BYTES_MAX = 256 * 1024 * 1024
+/** Четыре пятых лимита. Дальше владелец видит, что снимки применённых правок надо убрать руками. */
+export const PROPOSALS_BYTES_WARN = Math.floor((PROPOSALS_BYTES_MAX * 4) / 5)
 export const CLOSED_KEEP_MAX = 100
 export const CLOSED_KEEP_MS = 30 * 24 * 60 * 60 * 1000
 

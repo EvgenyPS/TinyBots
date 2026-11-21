@@ -5,8 +5,9 @@
  * ВЫХОД: абсолютный путь или отказ. Содержимое отказанной цели не читается.
  * Повторно используются requestAllowed, resolveInside не копируется вторым резолвером:
  * проверка строки — requestAllowed и isMergeFilePath, устройство — isReservedDeviceName.
- * Имя с диска: на Windows realpath (регистр и 8.3), иначе сегмент запроса.
- * Обход readdir по (dev, ino) остаётся запасным путём, если realpath не совпал с родителем.
+ * Имя с диска берётся из readdir родителя по (dev, ino) на всех ОС.
+ * На Windows перед обходом пробуем realpath: регистр и длинное имя без квадратичного lstat.
+ * ino 0 не сопоставляем с чужой записью.
  * Между проверкой и open есть крюк: подмена каталога симлинком должна дать отказ.
  */
 
@@ -33,6 +34,8 @@ export type SandboxContext = {
   respectGitignore: boolean
   gitignore: readonly IgnoreRule[]
   platform?: NodeJS.Platform
+  /** Снимок ino на время одного поиска. На Windows nlink врёт, и без снимка каждый файл обходит всё дерево. */
+  inodeCensus?: Map<string, number>
 }
 
 export type SandboxOk = {
@@ -95,43 +98,105 @@ export function pathShapeReason(rel: string, platform: NodeJS.Platform, maxDepth
   return null
 }
 
-/** POSIX доверяет nlink. На Windows он часто 1, поэтому там ещё считаем имена с тем же ino. */
-async function hardLink(abs: string, nlink: bigint, dev: bigint, ino: bigint): Promise<boolean> {
+/**
+ * POSIX доверяет nlink: ссылка в другом каталоге тоже даёт nlink > 1.
+ * На Windows nlink часто 1, поэтому тот же ino ищем по всему корню проекта, не только рядом с файлом.
+ * ino 0 не считаем: на части томов он у всех файлов.
+ */
+async function hardLink(ctx: SandboxContext, nlink: bigint, dev: bigint, ino: bigint): Promise<boolean> {
   if (nlink > 1n) {
     return true
   }
-  if (process.platform !== 'win32') {
+  if (process.platform !== 'win32' || ino === 0n) {
     return false
   }
-  return inodeShared(path.dirname(abs), dev, ino)
+  const census = ctx.inodeCensus ?? await buildCensus(ctx.rootReal)
+  return (census.get(inodeKey(dev, ino)) ?? 0) > 1
 }
 
-/** Общий ino у двух имён — жёсткая ссылка. Ноль не считаем: на части томов он у всех файлов. */
-async function inodeShared(parent: string, dev: bigint, ino: bigint): Promise<boolean> {
-  if (ino === 0n) {
-    return false
-  }
-  const dir = await opendir(parent)
-  let count = 0
-  try {
-    for await (const entry of dir) {
-      let ent: Awaited<ReturnType<typeof lstat>>
-      try {
-        ent = await lstat(path.join(parent, entry.name), { bigint: true })
-      } catch {
-        continue
-      }
-      if (ent.dev === dev && ent.ino === ino) {
-        count += 1
-        if (count > 1) {
-          return true
-        }
-      }
+function inodeKey(dev: bigint, ino: bigint): string {
+  return `${dev.toString(16)}:${ino.toString(16)}`
+}
+
+async function buildCensus(root: string): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  const stack = [root]
+  while (stack.length > 0) {
+    const dir = stack.pop()
+    if (!dir) {
+      break
     }
-  } finally {
-    await dir.close().catch(() => undefined)
+    let opened: Awaited<ReturnType<typeof opendir>>
+    try {
+      opened = await opendir(dir)
+    } catch {
+      continue
+    }
+    try {
+      for await (const entry of opened) {
+        let st: Awaited<ReturnType<typeof lstat>>
+        try {
+          st = await lstat(path.join(dir, entry.name), { bigint: true })
+        } catch {
+          continue
+        }
+        if (st.isSymbolicLink()) {
+          continue
+        }
+        if (st.isDirectory()) {
+          stack.push(path.join(dir, entry.name))
+          continue
+        }
+        if (!st.isFile() || st.ino === 0n) {
+          continue
+        }
+        const key = inodeKey(st.dev, st.ino)
+        map.set(key, (map.get(key) ?? 0) + 1)
+      }
+    } finally {
+      await opened.close().catch(() => undefined)
+    }
   }
-  return false
+  return map
+}
+
+/** Один обход на поиск: иначе каждая из 2000 проверок снова идёт по всему дереву. */
+export async function loadInodeCensus(ctx: SandboxContext): Promise<void> {
+  if (process.platform !== 'win32') {
+    return
+  }
+  ctx.inodeCensus = await buildCensus(ctx.rootReal)
+}
+
+export function clearInodeCensus(ctx: SandboxContext): void {
+  ctx.inodeCensus = undefined
+}
+
+type DiskEntry = { name: string; dev: bigint; ino: bigint }
+
+/**
+ * Имя с диска по записям родителя. ino 0 не сопоставляем: иначе чужой файл с тем же нулём
+ * станет «настоящим» именем и может закрыть или открыть не тот путь.
+ */
+export function spelledName(
+  segment: string,
+  st: { dev: bigint; ino: bigint },
+  entries: readonly DiskEntry[],
+  platform: NodeJS.Platform,
+): string {
+  const folded = segment.toLowerCase()
+  for (const entry of entries) {
+    if (entry.name === segment) {
+      return entry.name
+    }
+    if (platform === 'win32' && entry.name.toLowerCase() === folded) {
+      return entry.name
+    }
+    if (st.ino !== 0n && entry.dev === st.dev && entry.ino === st.ino) {
+      return entry.name
+    }
+  }
+  return segment
 }
 
 async function diskName(parent: string, segment: string): Promise<string | null> {
@@ -145,37 +210,35 @@ async function diskName(parent: string, segment: string): Promise<string | null>
     }
     throw error
   }
-  // Регистрозависимая ФС: успешный lstat уже доказывает точное имя. Соседей не читаем.
-  if (process.platform !== 'win32') {
-    return segment
+  // На Windows realpath сразу отдаёт регистр и длинное имя. На остальных ОС имя берём из readdir.
+  if (process.platform === 'win32') {
+    const spelled = await windowsSpelling(parent, joined)
+    if (spelled) {
+      return spelled
+    }
   }
-  // realpath на Windows отдаёт написание каталога (регистр, длинное имя вместо 8.3)
-  // одним вызовом. Обход тысяч соседей здесь квадратичный и на CI не успевает.
-  const spelled = await windowsSpelling(parent, joined)
-  if (spelled) {
-    return spelled
-  }
+  const names: string[] = []
   const dir = await opendir(parent)
-  const folded = segment.toLowerCase()
   try {
     for await (const entry of dir) {
-      if (entry.name === segment || entry.name.toLowerCase() === folded) {
+      if (entry.name === segment) {
         return entry.name
       }
-      let ent: Awaited<ReturnType<typeof lstat>>
-      try {
-        ent = await lstat(path.join(parent, entry.name), { bigint: true })
-      } catch {
-        continue
-      }
-      if (ent.dev === st.dev && ent.ino === st.ino) {
-        return entry.name
-      }
+      names.push(entry.name)
     }
   } finally {
     await dir.close().catch(() => undefined)
   }
-  return segment
+  const entries: DiskEntry[] = []
+  for (const name of names) {
+    try {
+      const ent = await lstat(path.join(parent, name), { bigint: true })
+      entries.push({ name, dev: ent.dev, ino: ent.ino })
+    } catch {
+      // запись исчезла между чтением каталога и lstat
+    }
+  }
+  return spelledName(segment, st, entries, process.platform)
 }
 
 /** Basename от realpath, только если файл остался в том же родителе. Иначе null — зовём обход. */
@@ -370,7 +433,7 @@ export async function readSandboxedFile(
   if (before.isSymbolicLink() || !before.isFile()) {
     return { ok: false, reason: 'не файл' }
   }
-  if (await hardLink(found.abs, before.nlink, before.dev, before.ino)) {
+  if (await hardLink(ctx, before.nlink, before.dev, before.ino)) {
     return { ok: false, reason: 'ссылка' }
   }
   if (hooks?.beforeOpen) {
@@ -389,7 +452,7 @@ export async function readSandboxedFile(
     if (!segmentsOk || fst.dev !== again.dev || fst.ino !== again.ino || fst.ino !== before.ino || fst.dev !== before.dev) {
       return { ok: false, reason: 'подмена' }
     }
-    if (fst.isSymbolicLink() || !fst.isFile() || await hardLink(found.abs, fst.nlink, fst.dev, fst.ino)) {
+    if (fst.isSymbolicLink() || !fst.isFile() || await hardLink(ctx, fst.nlink, fst.dev, fst.ino)) {
       return { ok: false, reason: 'не файл' }
     }
     const bytes = Buffer.from(await handle.readFile())

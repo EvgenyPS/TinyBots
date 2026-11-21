@@ -113,7 +113,7 @@ GitHub — мок в `apps/server/src/merge/github-mock.ts`. Сети и ток�
 
 ## 13. Инструменты папки и предложения (критерии I1–I19)
 
-Свой бот читает `source.files.path`, только если `project_tools` не `off` и у проекта `allow_bot_tools: true`. Бот должен быть `lead` или участником чата. `respect_gitignore` по умолчанию `true`: читается только корневой `.gitignore`. Строки с `!`, `**` и непонятные шаблоны закрывают путь, а не открывают его.
+Свой бот читает `source.files.path`, только если `project_tools` не `off` и у проекта `allow_bot_tools: true`. Оба ключа и `respect_gitignore` ставятся в мастере и в карточке бота. У бота Grok поля `project_tools` нет. Бот должен быть `lead` или участником чата. `respect_gitignore` по умолчанию `true`: читается только корневой `.gitignore`. Строки с `!`, `**` и непонятные шаблоны закрывают путь, а не открывают его. Шаблон `*`, `text`, `eol`, `diff`, `merge` и `linguist-*` путь не закрывают.
 
 Песочница переиспользует `requestAllowed`, `isMergeFilePath` и `isReservedDeviceName`. Имя сверяется дважды: как его попросили и как оно лежит на диске (`dev`/`ino`). Жёсткая ссылка (`nlink > 1`) не читается и не пишется: `realpath` не видит, что второй линк может быть вне корня. Между повторным `lstat` и `rename` окна `openat` нет — это остаточный риск, его же описывает `docs/files-safety.md`.
 

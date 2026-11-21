@@ -3,7 +3,8 @@
  * НАЗНАЧЕНИЕ: разобрать unified diff и наложить его на байты строго, без fuzz.
  * ВХОД: текст diff и карта текущих файлов. Новый файл — пустые байты и --- /dev/null.
  * ВЫХОД: итоговые байты или отказ. Удаление, переименование, режимы и бинарный патч не проходят.
- * CRLF и BOM исходника сохраняются. Противоречивый маркер «нет перевода строки» — отказ.
+ * Только UTF-8: невалидные байты — отказ, без подмены кодировки.
+ * Окончания строк сохраняются построчно, BOM тоже. Противоречивый маркер «нет перевода строки» — отказ.
  */
 
 import { DELETE_LINE_RATIO_MAX, DIFF_FILE_MAX, DIFF_FILES_MAX, DIFF_MAX } from './limits.js'
@@ -167,94 +168,134 @@ function splitLf(text: string): { lines: string[]; trailing: boolean } {
   return { lines: body.split('\n'), trailing }
 }
 
-function applyOne(file: FileDiff, original: string): { ok: true; text: string } | { ok: false; reason: string } {
-  const src = splitLf(original)
-  if (file.isNew && original.length > 0) {
+type SourceLine = { text: string; nl: '\n' | '\r\n' | '' }
+
+function applyOne(file: FileDiff, lines: SourceLine[]): { ok: true; text: string } | { ok: false; reason: string } {
+  const originalLen = lines.reduce((sum, line) => sum + line.text.length + line.nl.length, 0)
+  if (file.isNew && originalLen > 0) {
     return { ok: false, reason: 'файл уже есть' }
   }
-  const out: string[] = []
+  if (file.hunks.length === 0) {
+    return { ok: false, reason: 'нет хунка' }
+  }
+  // Смешанный файл не схлопываем в один стиль: новая строка берёт LF, кроме целиком CRLF.
+  const fresh: '\n' | '\r\n' = uniformCrlf(lines) ? '\r\n' : '\n'
+  const out: SourceLine[] = []
   let cursor = 0
   for (const hunk of file.hunks) {
     const start = hunk.oldStart === 0 ? 0 : hunk.oldStart - 1
-    if (start < cursor || start > src.lines.length) {
+    if (start < cursor || start > lines.length) {
       return { ok: false, reason: 'контекст не совпал' }
     }
-    out.push(...src.lines.slice(cursor, start))
+    out.push(...lines.slice(cursor, start))
     cursor = start
     for (const line of hunk.lines) {
-      if (line.kind === '+' ) {
-        out.push(line.text)
+      if (line.kind === '+') {
+        out.push({ text: line.text, nl: fresh })
         continue
       }
-      if (src.lines[cursor] !== line.text) {
+      const src = lines[cursor]
+      if (!src || src.text !== line.text) {
         return { ok: false, reason: 'контекст не совпал' }
       }
       if (line.kind === ' ') {
-        out.push(line.text)
+        out.push(src)
       }
       cursor += 1
     }
   }
-  out.push(...src.lines.slice(cursor))
-  let text = out.join('\n')
-  const trailing = file.noNewline ? false : (file.hunks.length === 0 ? src.trailing : true)
-  if (file.hunks.length === 0) {
-    return { ok: false, reason: 'нет хунка' }
+  out.push(...lines.slice(cursor))
+  if (out.length === 0) {
+    return { ok: true, text: '' }
   }
-  if (!file.noNewline) {
-    text += '\n'
-    if (!src.trailing && !file.isNew && cursor === src.lines.length && original.length > 0 && !original.endsWith('\n')) {
-      // Хунк не заявлял снятие перевода строки, а исходник его не имел — только если хунк трогал хвост.
-      const touchesEnd = file.hunks.some((hunk) => {
-        const start = hunk.oldStart === 0 ? 0 : hunk.oldStart - 1
-        return start + hunk.lines.filter((line) => line.kind !== '+').length >= src.lines.length
-      })
-      if (!touchesEnd) {
-        text = text.slice(0, -1)
-      }
+  const last = out[out.length - 1]
+  if (!last) {
+    return { ok: true, text: '' }
+  }
+  if (file.noNewline) {
+    out[out.length - 1] = { text: last.text, nl: '' }
+  } else if (last.nl === '') {
+    const touchesEnd = file.hunks.some((hunk) => {
+      const start = hunk.oldStart === 0 ? 0 : hunk.oldStart - 1
+      return start + hunk.lines.filter((line) => line.kind !== '+').length >= lines.length
+    })
+    if (file.isNew || touchesEnd) {
+      out[out.length - 1] = { text: last.text, nl: fresh }
     }
   }
-  void trailing
-  return { ok: true, text }
+  return { ok: true, text: out.map((line) => line.text + line.nl).join('') }
 }
 
 /**
  * Пустой итог или убыль числа строк строго больше половины.
  * Замена строки на строку убыли не даёт: минус в хунке сам по себе не запрет.
  */
+function asLf(text: string): string {
+  return text.replace(/\r\n/g, '\n')
+}
+
 function deletionRefusal(before: string, after: string): string | null {
-  const beforeBody = before.replace(/\s/g, '')
-  const afterBody = after.replace(/\s/g, '')
+  const left = asLf(before)
+  const right = asLf(after)
+  const beforeBody = left.replace(/\s/g, '')
+  const afterBody = right.replace(/\s/g, '')
   if (beforeBody.length > 0 && afterBody.length === 0) {
     return 'файл станет пустым'
   }
-  const originalLines = splitLf(before).lines.length
+  const originalLines = splitLf(left).lines.length
   if (originalLines === 0) {
     return null
   }
-  const nextLines = splitLf(after).lines.length
+  const nextLines = splitLf(right).lines.length
   if ((originalLines - nextLines) / originalLines > DELETE_LINE_RATIO_MAX) {
     return 'удалено больше половины файла'
   }
   return null
 }
 
-function newlineStyle(bytes: Buffer): { bom: boolean; crlf: boolean; lf: string } {
+/** Строгий UTF-8. BOM снимается до разбора и возвращается при записи. Невалидные байты не подменяются. */
+function decodeStrict(bytes: Buffer): { ok: true; bom: boolean; text: string } | { ok: false; reason: string } {
   const bom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
   const body = bom ? bytes.subarray(3) : bytes
-  const text = body.toString('latin1')
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(body)
+    return { ok: true, bom, text }
+  } catch {
+    return { ok: false, reason: 'не utf-8' }
+  }
+}
+
+function splitKeep(text: string): SourceLine[] {
+  if (text.length === 0) {
+    return []
+  }
+  const lines: SourceLine[] = []
+  let start = 0
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '\n') {
+      continue
+    }
+    const cr = index > start && text[index - 1] === '\r'
+    lines.push({ text: text.slice(start, cr ? index - 1 : index), nl: cr ? '\r\n' : '\n' })
+    start = index + 1
+  }
+  if (start < text.length) {
+    lines.push({ text: text.slice(start), nl: '' })
+  }
+  return lines
+}
+
+function uniformCrlf(lines: SourceLine[]): boolean {
   let crlf = false
-  let bare = false
-  for (let i = 0; i < text.length; i += 1) {
-    if (text[i] === '\n') {
-      if (i > 0 && text[i - 1] === '\r') {
-        crlf = true
-      } else {
-        bare = true
-      }
+  for (const line of lines) {
+    if (line.nl === '\n') {
+      return false
+    }
+    if (line.nl === '\r\n') {
+      crlf = true
     }
   }
-  return { bom, crlf: crlf && !bare, lf: text.replace(/\r\n/g, '\n') }
+  return crlf
 }
 
 /** Наложить diff. Несовпадение контекста не создаёт предложение. */
@@ -272,23 +313,22 @@ export function applyUnifiedDiff(
     if (!file.isNew && before === null) {
       return { ok: false, reason: 'нет файла' }
     }
-    const style = newlineStyle(before ?? Buffer.alloc(0))
-    const applied = applyOne(file, style.lf)
+    const decoded = decodeStrict(before ?? Buffer.alloc(0))
+    if (!decoded.ok) {
+      return decoded
+    }
+    const applied = applyOne(file, splitKeep(decoded.text))
     if (!applied.ok) {
       return applied
     }
     if (!file.isNew) {
-      const refusal = deletionRefusal(style.lf, applied.text)
+      const refusal = deletionRefusal(decoded.text, applied.text)
       if (refusal) {
         return { ok: false, reason: refusal }
       }
     }
-    let body = applied.text
-    if (style.crlf) {
-      body = body.replace(/\n/g, '\r\n')
-    }
-    const out = Buffer.from(body, 'utf8')
-    const after = style.bom ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), out]) : out
+    const out = Buffer.from(applied.text, 'utf8')
+    const after = decoded.bom ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), out]) : out
     if (after.length > DIFF_FILE_MAX) {
       return { ok: false, reason: 'файл больше 1 МиБ' }
     }

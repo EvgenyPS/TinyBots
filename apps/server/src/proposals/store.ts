@@ -13,7 +13,7 @@ import path from 'node:path'
 import { proposalSchema, type Proposal, type ProposalState } from '@tinybots/schema'
 import { readdirSync, readFileSync } from 'node:fs'
 import { writeAtomic } from '../store/atomic.js'
-import { CLOSED_KEEP_MAX, CLOSED_KEEP_MS, OPEN_PROPOSALS_MAX, PROPOSALS_BYTES_MAX } from '../tools/limits.js'
+import { CLOSED_KEEP_MAX, CLOSED_KEEP_MS, OPEN_PROPOSALS_MAX, PROPOSALS_BYTES_MAX, PROPOSALS_BYTES_WARN } from '../tools/limits.js'
 
 const CLOSED = new Set<ProposalState>(['rejected', 'reverted', 'conflict'])
 
@@ -167,7 +167,16 @@ export async function roomFor(dataDir: string, project: string, adding: number):
   }
   const used = await proposalsBytes(dataDir)
   if (used + adding > PROPOSALS_BYTES_MAX) {
-    return 'каталог предложений больше 256 МиБ'
+    return 'каталог предложений больше 256 МиБ. Снимки применённых правок сервер не удаляет: уберите старые папки proposals вручную.'
+  }
+  return null
+}
+
+/** Текст владельцу, когда каталог уже близко к потолку. Предложение при этом ещё принимается. */
+export async function storageWarning(dataDir: string): Promise<string | null> {
+  const used = await proposalsBytes(dataDir)
+  if (used >= PROPOSALS_BYTES_WARN) {
+    return 'Каталог предложений занял больше 80% из 256 МиБ. Снимки применённых правок не удаляются сами: уберите ненужные папки proposals вручную, иначе новые предложения не сохранятся.'
   }
   return null
 }
