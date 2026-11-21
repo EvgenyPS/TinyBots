@@ -37,6 +37,7 @@ const blocked = [
   'https://[::ffff:10.0.0.1]/',
   'https://[64:ff9b::8.8.8.8]/v1',
   'https://[64:ff9b:1::1]/',
+  'https://[64:ff9b:1:ffff::1]/',
   'http://[::ffff:0:a9fe:a9fe]/',
   'https://[::ffff:0:a9fe:a9fe]/',
   'https://[2002::1]/',
