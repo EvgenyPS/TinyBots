@@ -90,6 +90,13 @@
                   "read",
                   "propose"
                 ]
+              },
+              "apply_mode": {
+                "type": "string",
+                "enum": [
+                  "git",
+                  "files"
+                ]
               }
             },
             "required": [

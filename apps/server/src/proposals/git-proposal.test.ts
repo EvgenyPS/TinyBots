@@ -114,3 +114,35 @@ test('I12 git apply оставляет HEAD и дерево, revert удаляе
   expect(git(repo, ['cat-file', '-t', tip])).toBe('commit')
   expect(git(repo, ['rev-parse', '--git-dir'])).toBe('.git')
 })
+
+test('apply_mode files на git-папке не создаёт ветку', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'tinybots-gitf-'))
+  dirs.push(base)
+  const repo = path.join(base, 'repo')
+  const data = path.join(base, 'data')
+  await mkdir(repo, { recursive: true })
+  await mkdir(data, { recursive: true })
+  await writeFile(path.join(repo, 'note.txt'), 'old\n')
+  git(repo, ['init', '-b', 'main'])
+  git(repo, ['config', 'user.email', 't@t'])
+  git(repo, ['config', 'user.name', 't'])
+  git(repo, ['add', 'note.txt'])
+  git(repo, ['commit', '-m', 'start'])
+  const project = await realpath(repo)
+  const made = await createProposal({
+    projectReal: project,
+    dataDir: data,
+    dataReal: data,
+    launcherCwd: base,
+    configReal: null,
+    respectGitignore: true,
+    projectId: 'demo-keys',
+    botId: 'nora',
+    summary: 'снимок',
+    diff: '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-old\n+new\n',
+    now: new Date('2026-11-21T12:00:00.000Z'),
+    applyMode: 'files',
+  })
+  expect(made.ok && made.mode).toBe('files')
+  expect(git(repo, ['branch', '--list', 'tinybots/*'])).toBe('')
+})

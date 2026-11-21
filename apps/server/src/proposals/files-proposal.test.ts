@@ -43,6 +43,30 @@ async function sha(file: string): Promise<string> {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+test('режим git без каталога .git не подменяется снимком', async () => {
+  const { project, data } = await world()
+  const made = await createProposal({
+    projectReal: project,
+    dataDir: data,
+    dataReal: data,
+    launcherCwd: project,
+    configReal: null,
+    respectGitignore: true,
+    projectId: 'demo-keys',
+    botId: 'nora',
+    summary: 'ветка',
+    diff: diff('note.txt', 'old', 'new'),
+    now: NOW,
+    applyMode: 'git',
+  })
+  expect(made.ok).toBe(false)
+  if (made.ok) {
+    return
+  }
+  expect(made.error).toBe('в папке нет git, ветка недоступна')
+  expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('old\n')
+})
+
 test('I8 предложение не меняет проект, кривой diff не создаёт json', async () => {
   const { project, data } = await world()
   const before = await sha(path.join(project, 'note.txt'))
@@ -219,6 +243,16 @@ test('I11 правка файла между предложением и apply �
   expect(result.ok).toBe(false)
   expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('changed\n')
   expect(readProposal(data, made.id)?.state).toBe('conflict')
+  const closed = await rejectProposal({
+    dataDir: data,
+    id: made.id,
+    patchSha: row?.patch_sha256 ?? '',
+    now: NOW,
+    by: 'owner',
+  })
+  expect(closed.ok).toBe(true)
+  expect(readProposal(data, made.id)?.state).toBe('rejected')
+  expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('changed\n')
 })
 
 test('I12 обрыв после записи и recover возвращает исходные байты', async () => {

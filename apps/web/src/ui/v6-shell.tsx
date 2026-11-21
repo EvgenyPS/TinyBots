@@ -13,7 +13,7 @@ import { BriefPanel } from './brief-panel'
 import { DocsPanel } from './docs-panel'
 import { FilesPanel } from './files-panel'
 import { GitPanel } from './git-panel'
-import { MergeModal, ProposalModal, type DecideInput, type MergeView, type ProposalView } from './merge-modal'
+import { MergeModal, ProposalDrawer, ProposalModal, proposalBadgeCount, type DecideInput, type MergeView, type ProposalView } from './merge-modal'
 
 import { useEffect, useState } from 'react'
 
@@ -38,6 +38,7 @@ type Bot = {
   model?: string | null
   usage_label?: string | null
   project_tools?: 'off' | 'read' | 'propose' | null
+  apply_mode?: 'git' | 'files' | null
 }
 type Project = {
   id: string
@@ -48,6 +49,7 @@ type Project = {
   has_git?: boolean
   allow_bot_tools?: boolean
   respect_gitignore?: boolean
+  folder_git?: boolean
 }
 type Chat = {
   id: string
@@ -204,7 +206,9 @@ function BotTools(props: {
   csrf: string
   onDone: () => void
 }) {
+  const folderGit = props.project.folder_git === true
   const [level, setLevel] = useState<'off' | 'read' | 'propose'>(props.bot.project_tools ?? 'off')
+  const [mode, setMode] = useState<'git' | 'files'>(props.bot.apply_mode === 'git' && folderGit ? 'git' : props.bot.apply_mode === 'files' ? 'files' : folderGit ? 'git' : 'files')
   const [allow, setAllow] = useState(props.project.allow_bot_tools === true)
   const [ignore, setIgnore] = useState(props.project.respect_gitignore !== false)
   const [note, setNote] = useState<string | null>(null)
@@ -223,6 +227,7 @@ function BotTools(props: {
           bot_id: props.bot.id,
           project_id: props.project.id,
           project_tools: level,
+          apply_mode: mode === 'git' && folderGit ? 'git' : 'files',
           allow_bot_tools: allow,
           respect_gitignore: ignore,
         }),
@@ -240,24 +245,47 @@ function BotTools(props: {
     }
   }
   return (
-    <div data-testid="bot-tools">
+    <div data-testid="bot-tools" className={level === 'off' ? 'access off' : 'access'}>
       <h4>Доступ к папке</h4>
-      <label className="field">
-        <span>Инструменты этого бота</span>
-        <select data-testid="bot-tools-level" value={level} onChange={(event) => setLevel(event.target.value === 'read' || event.target.value === 'propose' ? event.target.value : 'off')}>
-          <option value="off">выключен</option>
-          <option value="read">только чтение</option>
-          <option value="propose">чтение и предложения</option>
-        </select>
-      </label>
-      <label className="check">
-        <input data-testid="bot-tools-allow" type="checkbox" checked={allow} onChange={(event) => setAllow(event.target.checked)} />
-        Разрешить инструментам читать эту папку
-      </label>
-      <label className="check">
-        <input data-testid="bot-tools-ignore" type="checkbox" checked={ignore} onChange={(event) => setIgnore(event.target.checked)} />
-        Не читать файлы из .gitignore
-      </label>
+      <fieldset className="radios" data-testid="bot-tools-level">
+        <legend>Инструменты этого бота</legend>
+        <label className={level === 'off' ? 'opt on' : 'opt'}>
+          <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-off" checked={level === 'off'} onChange={() => setLevel('off')} />
+          <b>Выключено</b>
+          <span>по умолчанию</span>
+        </label>
+        <label className={level === 'read' ? 'opt on' : 'opt'}>
+          <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-read" checked={level === 'read'} onChange={() => setLevel('read')} />
+          <b>Только чтение</b>
+          <span>поиск и чтение файлов</span>
+        </label>
+        <label className={level === 'propose' ? 'opt on' : 'opt'}>
+          <input type="radio" name={`tools-${props.bot.id}`} data-testid="bot-tools-propose" checked={level === 'propose'} onChange={() => setLevel('propose')} />
+          <b>Чтение и правки</b>
+          <span>бот предлагает, применяете вы</span>
+        </label>
+      </fieldset>
+      <div className="off-area">
+        <label className="check">
+          <input data-testid="bot-tools-allow" type="checkbox" checked={allow} onChange={(event) => setAllow(event.target.checked)} />
+          Разрешить инструментам читать эту папку
+        </label>
+        <label className="check">
+          <input data-testid="bot-tools-ignore" type="checkbox" checked={ignore} onChange={(event) => setIgnore(event.target.checked)} />
+          Не читать файлы из .gitignore
+        </label>
+        <div className="seg" data-testid="bot-apply-mode">
+          <label className={mode === 'git' ? 'on' : ''}>
+            <input type="radio" name={`apply-${props.bot.id}`} data-testid="bot-apply-git" checked={mode === 'git'} disabled={!folderGit} onChange={() => setMode('git')} />
+            Git-ветка
+          </label>
+          <label className={mode === 'files' ? 'on' : ''}>
+            <input type="radio" name={`apply-${props.bot.id}`} data-testid="bot-apply-files" checked={mode === 'files'} onChange={() => setMode('files')} />
+            Снимок файлов
+          </label>
+        </div>
+        {folderGit ? null : <p className="sub" data-testid="bot-apply-why">В папке нет git — ветка недоступна, останется снимок.</p>}
+      </div>
       <button type="button" className="btn" data-testid="bot-tools-save" disabled={busy} onClick={() => void save()}>Записать</button>
       {note ? <p className="sub" data-testid="bot-tools-note">{note}</p> : null}
     </div>
@@ -276,9 +304,19 @@ export function Dashboard() {
   const [proposals, setProposals] = useState<ProposalView[]>([])
   const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const [proposalId, setProposalId] = useState<string | null>(null)
+  const [listOpen, setListOpen] = useState(false)
+  const [notice, setNotice] = useState<'applied' | 'rejected' | 'reverted' | null>(null)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [toast, setToast] = useState<string | null>(null)
   const [revertOpen, setRevertOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('tinybots-theme')
+    const next = saved === 'light' ? 'light' : 'dark'
+    setTheme(next)
+    document.documentElement.dataset.theme = next
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -400,10 +438,42 @@ export function Dashboard() {
   const blank = data.projects.length === 0 ? 'projects' : data.bots.length === 0 ? 'bots' : null
   const requests = project ? data.merge_requests.filter((item) => item.project_id === project.id) : []
   const awaiting = requests.filter((item) => item.state === 'awaiting_owner')
-  const openProposals = proposals.filter((item) => item.state === 'proposed' || item.state === 'applied' || item.state === 'conflict')
+  const threadItems = chat ? proposals.filter((item) => item.bot_id === chat.lead_id) : []
+  const badge = proposalBadgeCount(threadItems)
   const openProposal = proposals.find((item) => item.id === proposalId) ?? null
   const merged = requests.filter((item) => item.state === 'merged')
   const openMr = requests.find((item) => item.id === mergeId) ?? null
+
+  async function askBot(item: ProposalView) {
+    const target = chats.find((row) => row.lead_id === item.bot_id)
+    if (!csrf || !target) {
+      setToast('Нет чата этого бота, попросить некого.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify({
+          bot: item.bot_id,
+          text: `Предложение ${item.id} не применилось: проект изменился. Обнови правку новым предложением. Старое не применяй.`,
+          project: item.project_id,
+          chat: target.id,
+        }),
+      })
+      if (!res.ok) {
+        setToast('Бот не ответил. Старое предложение не применено.')
+        return
+      }
+      setToast('Попросила бота обновить. Старое предложение не применено.')
+      setTick((n) => n + 1)
+    } catch {
+      setToast('Бот не ответил. Старое предложение не применено.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function actProposal(kind: 'apply' | 'reject' | 'revert', item: ProposalView) {
     if (!csrf) {
@@ -425,10 +495,14 @@ export function Dashboard() {
         ? (body as { message: string }).message
         : ''
       if (!res.ok) {
-        setToast(message || 'Предложение не изменилось.')
+        setNotice(null)
+        setTick((n) => n + 1)
+        if (kind !== 'apply') {
+          setToast(message || 'Предложение не изменилось.')
+        }
         return
       }
-      setProposalId(null)
+      setNotice(kind === 'apply' ? 'applied' : kind === 'reject' ? 'rejected' : 'reverted')
       setTick((n) => n + 1)
     } catch {
       setToast('Пульт не ответил за 200 с. Обновите страницу и проверьте предложение.')
@@ -560,14 +634,16 @@ export function Dashboard() {
             <button
               type="button"
               className="btn"
-              data-testid="proposals"
-              disabled={openProposals.length === 0}
-              title={openProposals.length === 0 ? 'Нет предложений' : 'Открыть предложения'}
-              onClick={() => setProposalId(openProposals[0]?.id ?? null)}
+              data-testid="theme-toggle"
+              onClick={() => {
+                const next = theme === 'dark' ? 'light' : 'dark'
+                setTheme(next)
+                document.documentElement.dataset.theme = next
+                window.localStorage.setItem('tinybots-theme', next)
+              }}
             >
-              Предложения ({openProposals.length})
+              {theme === 'dark' ? 'Светлая' : 'Тёмная'}
             </button>
-            {openProposals.length === 0 ? <span data-testid="proposals-reason">Нет предложений</span> : null}
             {storageWarning ? <p className="warn-box" data-testid="storage-warning">{storageWarning}</p> : null}
             <button
               type="button"
@@ -654,6 +730,9 @@ export function Dashboard() {
                         onDone={() => setTick((n) => n + 1)}
                       />
                     ) : null}
+                    {selected.transport !== 'api' ? (
+                      <p className="sub" data-testid="bot-tools-grok">У бота Grok нет доступа к папке: он работает в своём окне, файлы проекта ему не отдаются.</p>
+                    ) : null}
                     <h4>Задачи</h4>
                     <ul className="plain">
                       {tasks.filter((task) => task.assignee_id === selected.id).map((task) => (
@@ -729,8 +808,21 @@ export function Dashboard() {
           <aside className="detail">
             {chat ? (
               <>
-                <div className="k">Чат</div>
-                <h2>{chat.title}</h2>
+                <div className="th">
+                  <div>
+                    <div className="k">Чат</div>
+                    <h2>{chat.title}</h2>
+                  </div>
+                  <button
+                    type="button"
+                    className={badge > 0 ? 'pbadge has' : 'pbadge zero'}
+                    data-testid="proposals"
+                    title={badge > 0 ? 'Открыть предложения' : 'Нет предложений'}
+                    onClick={() => setListOpen(true)}
+                  >
+                    Предложения <b>{badge}</b>
+                  </button>
+                </div>
                 <p className="sub">главный {chat.lead_name}</p>
                 {project ? (
                   <BriefPanel
@@ -779,10 +871,28 @@ export function Dashboard() {
           projectTitle={project?.title ?? openProposal.project_id}
           busy={busy}
           waiting={busy}
-          onClose={() => setProposalId(null)}
+          notice={notice}
+          canAsk={chats.some((row) => row.lead_id === openProposal.bot_id)}
+          onClose={() => {
+            setProposalId(null)
+            setNotice(null)
+          }}
           onApply={() => void actProposal('apply', openProposal)}
           onReject={() => void actProposal('reject', openProposal)}
           onRevert={() => void actProposal('revert', openProposal)}
+          onAsk={() => void askBot(openProposal)}
+        />
+      ) : null}
+      {listOpen && chat ? (
+        <ProposalDrawer
+          botName={data.bots.find((bot) => bot.id === chat.lead_id)?.name ?? chat.lead_name}
+          items={threadItems}
+          onClose={() => setListOpen(false)}
+          onOpen={(id) => {
+            setNotice(null)
+            setProposalId(id)
+            setListOpen(false)
+          }}
         />
       ) : null}
       {openMr ? (

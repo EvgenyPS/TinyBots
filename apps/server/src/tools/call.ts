@@ -67,6 +67,7 @@ export type ToolRunContext = {
   now: Date
   hooks?: EngineHooks
   gitNotice?: string | null
+  applyMode?: 'git' | 'files'
 }
 
 const KNOWN = new Set(['list_dir', 'read_file', 'search', 'propose_patch'])
@@ -316,6 +317,7 @@ async function dispatchTool(ctx: ToolRunContext, name: string, argsText: string,
     diff: args.data.diff,
     now: ctx.now,
     hooks: ctx.hooks,
+    applyMode: ctx.applyMode,
   })
   return made.ok ? JSON.stringify({ ok: true, id: made.id, mode: made.mode }) : fail(made.error)
 }

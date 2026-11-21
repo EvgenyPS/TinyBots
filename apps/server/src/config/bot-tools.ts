@@ -7,7 +7,7 @@
  */
 
 import path from 'node:path'
-import { configSchema, idSchema, isApiBot, projectToolsSchema, type LauncherConfig } from '@tinybots/schema'
+import { applyModeSchema, configSchema, idSchema, isApiBot, projectToolsSchema, type LauncherConfig } from '@tinybots/schema'
 import { stringify } from 'yaml'
 import { z } from 'zod'
 import { writeAtomic } from '../store/atomic.js'
@@ -20,6 +20,7 @@ const patchSchema = z.strictObject({
   bot_id: idSchema,
   project_id: idSchema,
   project_tools: projectToolsSchema.optional(),
+  apply_mode: applyModeSchema.optional(),
   allow_bot_tools: z.boolean(),
   respect_gitignore: z.boolean(),
 })
@@ -45,7 +46,7 @@ export async function saveBotTools(root: string, options: LaunchOptions | undefi
   if (!bot || !project) {
     return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'бот или проект не найден' } }
   }
-  if (!isApiBot(bot) && patch.data.project_tools !== undefined) {
+  if (!isApiBot(bot) && (patch.data.project_tools !== undefined || patch.data.apply_mode !== undefined)) {
     return { status: 422, body: { ok: false, error: 'invalid_config', reason: 'у бота Grok нет project_tools' } }
   }
   const next: LauncherConfig = {
@@ -54,7 +55,11 @@ export async function saveBotTools(root: string, options: LaunchOptions | undefi
       if (item.id !== bot.id || !isApiBot(item)) {
         return item
       }
-      return { ...item, project_tools: patch.data.project_tools ?? item.project_tools }
+      return {
+        ...item,
+        project_tools: patch.data.project_tools ?? item.project_tools,
+        ...(patch.data.apply_mode ? { apply_mode: patch.data.apply_mode } : {}),
+      }
     }),
     projects: loaded.config.projects.map((item) => {
       if (item.id !== project.id) {

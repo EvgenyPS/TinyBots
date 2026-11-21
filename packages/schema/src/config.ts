@@ -59,6 +59,9 @@ function officialBaseUrl(provider: string): string | undefined {
  */
 export const projectToolsSchema = z.enum(['off', 'read', 'propose'])
 
+/** Как применять правку этого бота. Нет поля — сервер сам берёт git, если в папке есть репозиторий. */
+export const applyModeSchema = z.enum(['git', 'files'])
+
 export const apiBotSchema = z.strictObject({
   ...botCommon,
   instructions: z.string().min(1),
@@ -67,6 +70,7 @@ export const apiBotSchema = z.strictObject({
   base_url: z.string().min(1).optional(),
   api_key_env: z.string().regex(API_KEY_ENV_PATTERN, 'имя переменной *_API_KEY'),
   project_tools: projectToolsSchema.default('off'),
+  apply_mode: applyModeSchema.optional(),
 }).superRefine((bot, ctx) => {
   const base = bot.base_url ?? officialBaseUrl(bot.provider)
   if (base === undefined || !inspectBaseUrl(base).ok) {

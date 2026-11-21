@@ -26,6 +26,7 @@ export type ProposalState = (typeof PROPOSAL_STATES)[number]
 /**
  * proposed → applying → applied | conflict
  * proposed → rejected | conflict
+ * conflict | revert_conflict → rejected — закрыть без записи в проект
  * applied → reverting → reverted | revert_conflict
  * applied → revert_conflict — отказ отката до записи, живой файл уже не тот
  * reverting → applied — восстановление git, если ветку удалить не успели.
@@ -35,10 +36,10 @@ export const PROPOSAL_TRANSITIONS: Record<ProposalState, readonly ProposalState[
   applying: ['applied', 'conflict'],
   applied: ['reverting', 'revert_conflict'],
   reverting: ['reverted', 'revert_conflict', 'applied'],
-  conflict: [],
+  conflict: ['rejected'],
   rejected: [],
   reverted: [],
-  revert_conflict: [],
+  revert_conflict: ['rejected'],
 }
 
 export function canProposalTransition(from: string, to: string): boolean {

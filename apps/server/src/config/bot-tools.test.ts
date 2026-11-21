@@ -103,3 +103,38 @@ test('API-бот: propose пишется, у Grok поле отвергаетс�
   expect(loaded.config.projects[0]?.allow_bot_tools).toBe(true)
   expect(loaded.config.projects[0]?.respect_gitignore).toBe(false)
 })
+
+test('apply_mode пишется API-боту и отвергается у Grok', async () => {
+  await mkdir(path.join(repoRoot(), 'data'), { recursive: true })
+  const dir = await mkdtemp(path.join(repoRoot(), 'data', 'vitest-mode-'))
+  dirs.push(dir)
+  const project = path.join(dir, 'proj')
+  await mkdir(project)
+  const file = path.join(dir, 'config.yaml')
+  await writeFile(file, stringify(config(project, 'off')))
+  const configPath = path.relative(repoRoot(), file).split(path.sep).join('/')
+  const grok = await saveBotTools(repoRoot(), { configPath }, {
+    bot_id: 'bitk',
+    project_id: 'demo-keys',
+    apply_mode: 'files',
+    allow_bot_tools: true,
+    respect_gitignore: true,
+  })
+  expect(grok.status).toBe(422)
+  const saved = await saveBotTools(repoRoot(), { configPath }, {
+    bot_id: 'nora',
+    project_id: 'demo-keys',
+    project_tools: 'propose',
+    apply_mode: 'files',
+    allow_bot_tools: true,
+    respect_gitignore: true,
+  })
+  expect(saved.status).toBe(200)
+  const loaded = loadConfigAt(repoRoot(), configPath)
+  expect(loaded.ok).toBe(true)
+  if (!loaded.ok) {
+    return
+  }
+  const nora = loaded.config.bots.find((bot) => bot.id === 'nora')
+  expect(nora && 'apply_mode' in nora ? nora.apply_mode : '').toBe('files')
+})

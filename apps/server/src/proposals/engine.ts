@@ -77,6 +77,8 @@ export async function createProposal(input: {
   diff: string
   now: Date
   hooks?: EngineHooks
+  /** git или files. Без поля — git, если в папке обычный каталог .git. */
+  applyMode?: 'git' | 'files'
 }): Promise<{ ok: true; id: string; mode: 'files' | 'git' } | { ok: false; error: string }> {
   if (input.summary.trim().length === 0) {
     return { ok: false, error: 'нужна сводка' }
@@ -125,7 +127,11 @@ export async function createProposal(input: {
   }
   let mode: 'files' | 'git' = 'files'
   let git: Proposal['git']
-  if (gitStat && !gitStat.isSymbolicLink() && gitStat.isDirectory()) {
+  const wantGit = input.applyMode === 'git' || (input.applyMode !== 'files' && Boolean(gitStat))
+  if (input.applyMode === 'git' && (!gitStat || gitStat.isSymbolicLink() || !gitStat.isDirectory())) {
+    return { ok: false, error: 'в папке нет git, ветка недоступна' }
+  }
+  if (wantGit && gitStat && !gitStat.isSymbolicLink() && gitStat.isDirectory()) {
     const found = await ensureGit({
       projectReals: [input.projectReal],
       dataReal: input.dataReal,
@@ -154,7 +160,7 @@ export async function createProposal(input: {
       tree: null,
       commit: null,
     }
-  } else if (gitStat) {
+  } else if (gitStat && (gitStat.isSymbolicLink() || !gitStat.isDirectory())) {
     return { ok: false, error: 'вложенный репозиторий не поддерживается' }
   }
   await sweepClosed(input.dataDir, input.projectId, input.now)
@@ -358,7 +364,7 @@ export async function rejectProposal(input: {
     if (item.patch_sha256 !== input.patchSha) {
       return { ok: false, error: 'patch_sha256' }
     }
-    if (item.state !== 'proposed') {
+    if (item.state !== 'proposed' && item.state !== 'conflict' && item.state !== 'revert_conflict') {
       return { ok: false, error: 'invalid_state' }
     }
     await writeProposal(input.dataDir, move(item, 'rejected', atIso(input.now), input.by, 'reject'))

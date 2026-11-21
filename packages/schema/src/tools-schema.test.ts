@@ -21,7 +21,10 @@ test('I1 без project_tools получается off, grok поле отвер
   const parsed = apiBotSchema.parse(api)
   expect(parsed.project_tools).toBe('off')
   expect(apiBotSchema.parse({ ...api, project_tools: 'propose' }).project_tools).toBe('propose')
+  expect(apiBotSchema.parse({ ...api, apply_mode: 'files' }).apply_mode).toBe('files')
+  expect(apiBotSchema.parse(api).apply_mode).toBeUndefined()
   expect(grokBotSchema.safeParse({ id: 'bitk', name: 'Бит', role: 'код', project_tools: 'read' }).success).toBe(false)
+  expect(grokBotSchema.safeParse({ id: 'bitk', name: 'Бит', role: 'код', apply_mode: 'git' }).success).toBe(false)
 })
 
 test('I1 ключи проекта по умолчанию выключены и gitignore включён', () => {
@@ -61,6 +64,8 @@ describe('I14 переходы предложения', () => {
     ['proposed', 'conflict'],
     ['applying', 'applied'],
     ['applying', 'conflict'],
+    ['conflict', 'rejected'],
+    ['revert_conflict', 'rejected'],
     ['applied', 'reverting'],
     ['applied', 'revert_conflict'],
     ['reverting', 'reverted'],

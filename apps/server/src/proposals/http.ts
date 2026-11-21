@@ -127,9 +127,11 @@ export async function getProposals(root: string, options: LaunchOptions | undefi
     summary: item.summary,
     state: item.state,
     why: item.history[item.history.length - 1]?.why ?? '',
+    history: item.history.map((row) => ({ state: row.state, at: row.at, by: row.by, why: row.why })),
     patch_sha256: item.patch_sha256,
     mode: item.mode,
     branch: item.git?.branch ?? null,
+    commit: item.git?.commit ? item.git.commit.slice(0, 7) : null,
     files: item.files.map((file) => ({ path: file.path, is_new: file.base_sha256 === null })),
     diff: readDiff(dataDir.dir, item.id),
   }))

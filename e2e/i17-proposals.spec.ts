@@ -41,7 +41,7 @@ test('I17 предложение, модалка, применение и отк
     req.on('data', (chunk: Buffer) => chunks.push(chunk))
     req.on('end', () => {
       step += 1
-      const payload = step === 1
+      const payload = step % 2 === 1
         ? {
           choices: [{
             message: {
@@ -59,7 +59,7 @@ test('I17 предложение, модалка, применение и отк
           usage: { prompt_tokens: 3, completion_tokens: 3, total_tokens: 6 },
         }
         : {
-          choices: [{ message: { content: 'предложила правку' } }],
+          choices: [{ message: { content: `предложила правку ${step}` } }],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
         }
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -126,17 +126,43 @@ test('I17 предложение, модалка, применение и отк
     expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('old\n')
     await page.reload()
     await page.getByTestId('proposals').click()
+    await page.getByTestId('proposal-item').first().click()
+    await expect(page.getByTestId('proposal-title')).toContainText('Предложение #')
     await expect(page.getByTestId('proposal-summary')).toContainText('<script>alert(1)</script>')
     await expect(page.getByTestId('proposal-dialog')).toContainText('со слов бота')
     await expect(page.getByTestId('exec-package.json')).toContainText('исполняемый/CI')
     expect(await page.evaluate(() => (window as unknown as { __alerted?: boolean }).__alerted)).toBe(false)
+    const before = await page.getByTestId('proposal-diff').boundingBox()
     await page.getByTestId('proposal-apply').click()
+    await expect(page.getByTestId('proposal-toast')).toBeVisible()
+    const after = await page.getByTestId('proposal-diff').boundingBox()
+    expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(1)
+    expect(Math.abs((after?.height ?? 0) - (before?.height ?? 0))).toBeLessThan(1)
     await expect.poll(() => readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('new\n')
     await page.reload()
     await page.getByTestId('proposals').click()
+    await page.getByTestId('proposal-item').first().click()
     await page.getByTestId('proposal-revert').click()
     await page.getByTestId('proposal-revert-yes').click()
     await expect.poll(() => readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('old\n')
+    await page.reload()
+    await page.getByTestId('api-chat-input').fill('ещё правка')
+    await page.getByTestId('api-chat-send').click()
+    await expect(page.getByTestId('api-chat-log')).toContainText('предложила правку 4')
+    writeFileSync(path.join(project, 'note.txt'), 'changed\n')
+    await page.reload()
+    await page.getByTestId('proposals').click()
+    await page.getByTestId('proposal-item').filter({ hasText: 'Новое' }).click()
+    const conflictBefore = await page.getByTestId('proposal-diff').boundingBox()
+    await page.getByTestId('proposal-apply').click()
+    await expect(page.getByTestId('proposal-error')).toBeVisible()
+    const conflictAfter = await page.getByTestId('proposal-diff').boundingBox()
+    expect(Math.abs((conflictAfter?.y ?? 0) - (conflictBefore?.y ?? 0))).toBeLessThan(1)
+    expect(Math.abs((conflictAfter?.height ?? 0) - (conflictBefore?.height ?? 0))).toBeLessThan(1)
+    expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('changed\n')
+    await page.getByTestId('proposal-reject').click()
+    await expect(page.getByTestId('proposal-toast')).toContainText('Отклонено')
+    expect(readFileSync(path.join(project, 'note.txt'), 'utf8')).toBe('changed\n')
     const logs = server.logs()
     expect(logs.includes(project)).toBe(false)
     expect(logs.includes('old')).toBe(false)

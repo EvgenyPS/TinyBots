@@ -23,6 +23,7 @@ export {
   API_KEY_ENV_PATTERN,
   LLM_PRESET_BASE_URL,
   apiBotSchema,
+  applyModeSchema,
   botSchema,
   configSchema,
   grokBotSchema,

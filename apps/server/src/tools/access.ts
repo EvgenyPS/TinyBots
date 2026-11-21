@@ -79,7 +79,8 @@ export async function openTools(input: {
   }
   let gitNotice: string | null = null
   let offerPropose = input.bot.project_tools === 'propose'
-  if (offerPropose) {
+  const applyMode = input.bot.apply_mode
+  if (offerPropose && applyMode !== 'files') {
     let gitDir = false
     try {
       const st = await lstat(path.join(projectReal, '.git'))
@@ -93,6 +94,9 @@ export async function openTools(input: {
         offerPropose = false
         gitNotice = GIT_MISSING
       }
+    } else if (applyMode === 'git') {
+      offerPropose = false
+      gitNotice = 'в папке нет git, ветка недоступна'
     }
   }
   return {
@@ -112,6 +116,7 @@ export async function openTools(input: {
       projectReal,
       now: input.now,
       gitNotice,
+      applyMode,
     },
   }
 }

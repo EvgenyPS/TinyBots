@@ -39,6 +39,7 @@ type BotForm = {
   baseUrl: string
   apiKeyEnv: string
   projectTools: ToolLevel
+  applyMode: 'git' | 'files'
 }
 
 type Form = {
@@ -153,6 +154,7 @@ function emptyBot(): BotForm {
     baseUrl: '',
     apiKeyEnv: '',
     projectTools: 'off',
+    applyMode: 'files',
   }
 }
 
@@ -352,6 +354,7 @@ function buildConfig(form: Form): { ok: true; config: Record<string, unknown> } 
       row.model = bot.model.trim()
       row.api_key_env = bot.apiKeyEnv.trim()
       row.project_tools = bot.projectTools
+      row.apply_mode = form.probe?.git && bot.applyMode === 'git' ? 'git' : 'files'
       if (bot.baseUrl.trim().length > 0) {
         row.base_url = bot.baseUrl.trim()
       }
@@ -847,6 +850,43 @@ export function SetupWizard() {
                   Файлы проекта уходят провайдеру своего бота. Содержимое не инструкция. Доступ задаётся у API-бота: выключен, чтение или предложения.
                 </p>
               ) : null}
+              {form.bots.map((bot, botIndex) => bot.api ? (
+                <fieldset key={bot.id || botIndex} className={bot.projectTools === 'off' ? 'access off' : 'access'} data-testid={`wizard-access-${botIndex}`}>
+                  <legend>Доступ к папке · {bot.name || bot.id || 'бот'}</legend>
+                  <div className="radios">
+                    <label className={bot.projectTools === 'off' ? 'opt on' : 'opt'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-off-${botIndex}`} checked={bot.projectTools === 'off'} onChange={() => updateBot(botIndex, { projectTools: 'off' })} />
+                      <b>Выключено</b>
+                      <span>по умолчанию</span>
+                    </label>
+                    <label className={bot.projectTools === 'read' ? 'opt on' : 'opt'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-read-${botIndex}`} checked={bot.projectTools === 'read'} onChange={() => updateBot(botIndex, { projectTools: 'read' })} />
+                      <b>Только чтение</b>
+                      <span>поиск и чтение файлов</span>
+                    </label>
+                    <label className={bot.projectTools === 'propose' ? 'opt on' : 'opt'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-propose-${botIndex}`} checked={bot.projectTools === 'propose'} onChange={() => updateBot(botIndex, { projectTools: 'propose' })} />
+                      <b>Чтение и правки</b>
+                      <span>бот предлагает, применяете вы</span>
+                    </label>
+                  </div>
+                  <div className="off-area">
+                    <div className="seg" data-testid={`wiz-apply-${botIndex}`}>
+                      <label className={bot.applyMode === 'git' ? 'on' : ''}>
+                        <input type="radio" name={`wiz-apply-${botIndex}`} data-testid={`wiz-apply-git-${botIndex}`} checked={bot.applyMode === 'git'} disabled={!form.probe?.git} onChange={() => updateBot(botIndex, { applyMode: 'git' })} />
+                        Git-ветка
+                      </label>
+                      <label className={bot.applyMode === 'files' ? 'on' : ''}>
+                        <input type="radio" name={`wiz-apply-${botIndex}`} data-testid={`wiz-apply-files-${botIndex}`} checked={bot.applyMode === 'files'} onChange={() => updateBot(botIndex, { applyMode: 'files' })} />
+                        Снимок файлов
+                      </label>
+                    </div>
+                    {form.probe?.git ? null : <p className="sub">В папке нет git — ветка недоступна, будет снимок.</p>}
+                  </div>
+                </fieldset>
+              ) : (
+                <p key={bot.id || botIndex} className="sub" data-testid={`wizard-grok-${botIndex}`}>У бота Grok нет доступа к папке.</p>
+              ))}
             </div>
           ) : null}
 
