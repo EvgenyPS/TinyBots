@@ -6,7 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { link, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
@@ -21,24 +21,29 @@ afterEach(async () => {
 })
 
 async function layout(): Promise<{ root: string; outside: string; ctx: SandboxContext }> {
-  const root = await mkdtemp(path.join(tmpdir(), 'tinybots-sb-'))
-  roots.push(root)
-  const outside = path.join(root, '..', `outside-${path.basename(root)}`)
-  await mkdir(outside, { recursive: true })
-  roots.push(outside)
+  const made = await mkdtemp(path.join(tmpdir(), 'tinybots-sb-'))
+  // realpath: на Windows mkdtemp и realpath файла расходятся (8.3), staysIn тогда говорит «вне».
+  const root = await realpath(made)
+  roots.push(made, root)
+  const outsideMade = path.join(root, '..', `outside-${path.basename(root)}`)
+  await mkdir(outsideMade, { recursive: true })
+  const outside = await realpath(outsideMade)
+  roots.push(outsideMade, outside)
   await writeFile(path.join(outside, 'secret.txt'), 'CANARY-OUTSIDE')
   await writeFile(path.join(root, 'note.txt'), 'hello\n')
   await mkdir(path.join(root, 'sub'), { recursive: true })
   await writeFile(path.join(root, 'sub', 'inner.txt'), 'inner\n')
+  const dataMade = path.join(root, 'data-box')
+  await mkdir(dataMade, { recursive: true })
+  const dataReal = await realpath(dataMade)
   const ctx: SandboxContext = {
     rootReal: root,
-    dataReal: path.join(root, 'data-box'),
+    dataReal,
     launcherConfigReal: null,
     respectGitignore: true,
     gitignore: [],
   }
-  await mkdir(ctx.dataReal!, { recursive: true })
-  await writeFile(path.join(ctx.dataReal!, 'state.json'), 'secret-data')
+  await writeFile(path.join(dataReal, 'state.json'), 'secret-data')
   return { root, outside, ctx }
 }
 
