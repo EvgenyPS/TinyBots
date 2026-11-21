@@ -81,6 +81,15 @@
               "api_key_env": {
                 "type": "string",
                 "pattern": "^[A-Z][A-Z0-9_]*_API_KEY$"
+              },
+              "project_tools": {
+                "default": "off",
+                "type": "string",
+                "enum": [
+                  "off",
+                  "read",
+                  "propose"
+                ]
               }
             },
             "required": [
@@ -291,6 +300,14 @@
               ],
               "additionalProperties": false
             }
+          },
+          "allow_bot_tools": {
+            "default": false,
+            "type": "boolean"
+          },
+          "respect_gitignore": {
+            "default": true,
+            "type": "boolean"
           }
         },
         "required": [

@@ -160,13 +160,38 @@
 | H6 | SSRF: таблица URL (IPv6, числовые IPv4, `0.0.0.0`, `::1` вне исключения, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`, `::/96`, `fec0::/10`, `::ffff:0:0:0/96`). `redirect: 'manual'`: любой 3xx — ошибка, цель редиректа не вызывается. Адреса после DNS проходят те же правила | `packages/schema/src/base-url.test.ts`, `apps/server/src/llm/client.test.ts` |
 | H7 | 401 без повтора. 429 — не больше 3 повторов (всего ≤ 4 попыток), `Retry-After` не дольше 60 с. Таймаут 60 с, обрыв, тело больше 1 МиБ. Заголовки без тела и обрыв после заголовков — ошибка, процесс жив, стека в логе нет. Ключ не светится. `stream: false` | `apps/server/src/llm/client.test.ts` |
 | H8 | Участник команды: `lead`, `assignee`, выбор чатов мержа | `e2e/h-api-bots.spec.ts`, `apps/server/src/llm/flow.test.ts` |
-| H9 | Бриф API-боту уходит по API сам, без обязательного буфера и `grokbot://`. В контексте нет чужих чатов и тел файлов. Ответ в UI только текст: `<script>` и `javascript:` не исполняются | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
+| H9 | Бриф API-боту уходит по API сам, без обязательного буфера и `grokbot://`. В контексте нет чужих чатов и тел файлов. Файлы не в системном контексте; при включённых инструментах — только выводом инструментов. Ответ в UI только текст: `<script>` и `javascript:` не исполняются | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
 | H10 | Ответ атомарно в `status/<bot_id>.json` по `statusSchema`. Невалидный ответ не портит файл и не роняет сервер. Записка не ставит `done`, не запускает мерж и не меняет lead/assignee. Тест: JSON со `status: "done"` и строкой `<script>` | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
 | H11 | Чат в лаунчере, история в `data_dir`, не больше 100 сообщений: 101-е вытесняет первое. Ключа в сообщениях нет. Промпты и ответы не в логе | `apps/server/src/llm/store.test.ts`, `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
 | H12 | `reply_limit` (short = 6 строк), `max_wakes_per_task`, пауза, `rules.base` не выключается. Счётчик атомарно в `data_dir`, переживает перечитывание, без гонки. Четвёртый вызов при лимите 3, в том числе из двух параллельных при счётчике 2, до мока не доходит. `POST /api/chat` при `paused: true` — 409, мок молчит | `apps/server/src/llm/flow.test.ts`, `apps/server/src/llm/store.test.ts` |
 | H13 | Расход по полю `usage` и имени переменной ключа, отдельно от недельной оценки. Нет `usage` — «нет данных», оценка не пишется. Файл в `data_dir` по своей схеме, атомарно. Значения ключа в файле нет | `apps/server/src/llm/store.test.ts`, `apps/server/src/llm/flow.test.ts` |
 | H14 | Новые POST в `isWrite` вместе с CSRF и Origin. Без токена, с чужим токеном и без Origin — 403, мок не вызван. Н59, пять случаев: `same-site` и `cross-site` — 403, мок молчит; `same-origin`, `none` и без заголовка — 200 | `apps/server/src/files/files.test.ts`, `apps/server/src/llm/flow.test.ts` |
 | H15 | Документы из списка, гигиена, `check-forbidden`, gitleaks. Остаточный риск TOCTOU ребайндинга — `docs/ARCH.md` | ревью документов, CI |
+
+## I. Инструменты папки и предложения правок
+
+Оба ключа выключены по умолчанию: `project_tools: off` у своего бота и `allow_bot_tools: false` у проекта. `propose` ставится только явно. У бота Grok поля `project_tools` нет. Ход без инструментов побайтно совпадает с прежним запросом: поля `tools` нет. Числа лимитов не сжимаются.
+
+| ID | Критерий | Как проверяем |
+|---|---|---|
+| I1 | Нет `project_tools` или нет `allow_bot_tools` — в запросе к моку нет `tools`. У grok-бота поле отвергается. Инструментов нет, если бот не из команды или нет `source.files.path`. `propose_patch` только при `propose`. Корень ФС, дом или его предок, каталог лаунчера и предок `data_dir` — ошибка мастера | `packages/schema/src/tools-schema.test.ts`, `apps/server/src/tools/turn.test.ts`, `apps/server/src/tools/roots.ts` |
+| I2 | Модели доступны только `list_dir`, `read_file`, `search` и при `propose` ещё `propose_patch`. Неизвестное имя, битый JSON и лишнее поле `project` — ошибка инструмента, диск прежний | `apps/server/src/tools/turn.test.ts` |
+| I3 | Выход за корень, UNC, устройства, хвостовые символы, `./x`, `x//y`, `%2e%2e`, симлинк и подмена каталога между проверкой и open — отказ, цель не читается. `''` и `.` разрешены. Junction и 8.3 — на Windows | `apps/server/src/tools/sandbox.test.ts` |
+| I4 | Denylist по строке и по имени на диске: `.env`, `.git`, ключи, `node_modules`, `backups`, `staging`, Unicode с игнорируемыми символами. Корневой `.gitignore` (`dist/`, `*.local`, `!` и `**`) скрывает путь. `list_dir` и `search` такие имена не показывают | `apps/server/src/tools/sandbox.test.ts` |
+| I5 | Границы: файл 256 КиБ, вызов 64 КиБ, 2000 строк, каталог 500 записей, глубина 12, поиск 2000 файлов / 5000 каталогов / 8 МиБ / 100 совпадений, ход 16 вызовов и 6 запросов, вывод 256 КиБ, вызов 10 с, дедлайн 180 с, 20 открытых предложений, `proposals/` 256 МиБ, закрытые старше 30 дней и сверх 100 | `apps/server/src/tools/limits.ts`, `apps/server/src/tools/loop.ts` |
+| I6 | NUL и невалидный UTF-8 дают `binary`. FIFO и hardlink (`nlink > 1`) не читаются. FIFO пропускается на Windows | `apps/server/src/tools/sandbox.test.ts` |
+| I7 | Тело файла — данные, не инструкция. Записка из вывода инструмента не применяется. Секреты в выводе становятся `[secret]`. `systemPrompt` без тел файлов | `apps/server/src/tools/mask.ts`, `apps/server/src/llm/turn.ts` |
+| I8 | `propose_patch` пишет только в `data_dir/proposals/`. Дифф, который не наложился, удаление, переименование и новый файл в несуществующем каталоге отвергаются | `apps/server/src/proposals/files-proposal.test.ts` |
+| I9 | Без «Применить» файлы не меняются. «Отклонить» тоже не пишет проект | `apps/server/src/proposals/files-proposal.test.ts` |
+| I10 | `apply`, `reject`, `revert` в `isWrite`: CSRF, Origin, `Sec-Fetch-Site`. Без `confirms_merge` apply и revert — 403. Неверный `patch_sha256` — 409, json и файлы прежние | `apps/server/src/server.ts`, `apps/server/src/proposals/http.ts` |
+| I11 | Расхождение `base_sha256`, уже существующий «новый» файл и подмена `post/` — 409 `conflict`, байты проекта не записаны. Повторный apply — `invalid_state` | `apps/server/src/proposals/files-proposal.test.ts` |
+| I12 | Снимок в `proposals/<id>/backup/` до замены. Обрыв после первой записи и `recover()` возвращают исходные байты и `crash_recovered`. В git ветка `tinybots/proposal-<id>`, HEAD и рабочее дерево прежние, автор `TinyBots <bot@localhost>`, в сообщении нет summary | `apps/server/src/proposals/files-proposal.test.ts`, `apps/server/src/proposals/git-proposal.test.ts` |
+| I13 | Откат files удаляет созданный файл. Откат git удаляет ветку и не трогает рабочее дерево | те же файлы I12 |
+| I14 | Таблица переходов, включая `applying` и `reverting`. Другие пары отвергаются. Один автомат на оба режима | `packages/schema/src/tools-schema.test.ts` |
+| I15 | Белый список подкоманд и флагов: запретное бросает исключение до `execFile`. Окружение без `HOME`. Префикс `-c` на каждый ключ. `safe.directory` не передаётся | `apps/server/src/tools/git.guard.test.ts` |
+| I16 | В лог — имя инструмента, код и число байт. Путей, диффов и ключей в журнале нет. В `chats/` нет вывода инструментов | `apps/server/src/tools/call.ts`, `e2e/i17-proposals.spec.ts` |
+| I17 | Playwright: предложение, модалка, «Применить», «Отклонить», «Откатить», текст `<script>` не исполняется, значок «исполняемый/CI» | `e2e/i17-proposals.spec.ts` |
+| I18 | Документы, `schema:json`, `check-forbidden`, gitleaks, CI из пяти job | этот раздел, `docs/ARCH.md` §13, `docs/files-safety.md`, `README.md` |
 
 ## Вопросы к владельцу (для Ава в LAUNCHER_PLAN.md)
 1. **F9:** какую цель экономии фиксируем — минус 30% пробуждений на задачу или другую?

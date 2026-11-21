@@ -238,3 +238,185 @@ export function MergeModal(props: {
     </div>
   )
 }
+
+export type ProposalView = {
+  id: string
+  project_id: string
+  bot_id: string
+  task_id: string | null
+  summary: string
+  state: string
+  why: string
+  patch_sha256: string
+  mode: 'files' | 'git'
+  branch: string | null
+  files: Array<{ path: string; is_new: boolean }>
+  diff: string
+}
+
+const EXEC_HINT = 'URL в .gitmodules и filter= в .gitattributes сработают при следующих командах git.'
+
+function executable(file: string): boolean {
+  const name = file.split('/').pop() ?? file
+  if (name === 'package.json' || name === 'Makefile' || name === 'Dockerfile' || name === '.npmrc' || name === '.gitmodules' || name === '.gitattributes' || name === '.gitignore') {
+    return true
+  }
+  if (file.startsWith('.github/') || file.startsWith('.husky/')) {
+    return true
+  }
+  if (file === '.vscode/tasks.json' || file === '.vscode/launch.json') {
+    return true
+  }
+  return ['.sh', '.ps1', '.bat', '.cmd', '.gitconfig'].some((ext) => name.endsWith(ext))
+}
+
+const WHY: Record<string, string> = {
+  conflict: 'файл изменился после предложения, ничего не записано',
+  crash_recovered: 'файл изменился после предложения, ничего не записано',
+  dirty: 'в затронутых файлах есть незакоммиченные правки',
+  detached_head: 'HEAD не на ветке',
+  unsupported_entry: 'симлинк или подмодуль в git не правится',
+  unsupported_filter: 'у файла git-фильтр или особый eol, правьте вручную',
+  branch_exists: 'ветка с таким именем уже есть',
+  missing_git: 'git не найден или старше 2.45.1',
+  owner: 'репозиторий принадлежит другому пользователю',
+  partial: 'частичный клон не поддерживается',
+  revert_conflict: 'ветку уже меняли, удалять её нельзя',
+}
+
+export function ProposalModal(props: {
+  item: ProposalView
+  botName: string
+  projectTitle: string
+  busy: boolean
+  waiting: boolean
+  onClose: () => void
+  onApply: () => void
+  onReject: () => void
+  onRevert: () => void
+}) {
+  const { item, busy, waiting, onClose } = props
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const returnFocus = useRef<HTMLElement | null>(null)
+  const [confirmRevert, setConfirmRevert] = useState(false)
+  const proposed = item.state === 'proposed'
+  const applied = item.state === 'applied'
+  const banner = WHY[item.why] ?? ''
+
+  useEffect(() => {
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const node = dialogRef.current
+    const focusable = () => Array.from(node?.querySelectorAll<HTMLElement>('button, [href], input, textarea') ?? [])
+      .filter((el) => !el.hasAttribute('disabled'))
+    focusable()[0]?.focus()
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') {
+        return
+      }
+      const items = focusable()
+      if (items.length === 0) {
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      returnFocus.current?.focus()
+    }
+  }, [onClose])
+
+  return (
+    <div className="modal-bg" data-testid="proposal-dialog-bg">
+      <div
+        className="merge-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="proposal-title"
+        ref={dialogRef}
+        data-testid="proposal-dialog"
+        data-state={item.state}
+      >
+        <header className="merge-head">
+          <div>
+            <p className="k">Запрос на мерж</p>
+            <h2 id="proposal-title">{props.botName}</h2>
+            <p className="sub">
+              {props.projectTitle}
+              {item.task_id ? ` · ${item.task_id}` : ''}
+              {` · ${item.patch_sha256.slice(0, 7)}`}
+            </p>
+          </div>
+          <button type="button" className="close-x" onClick={onClose} aria-label="Закрыть предложение">×</button>
+        </header>
+        {banner ? <p className="merge-error" data-testid="proposal-banner">{banner}</p> : null}
+        {waiting ? <p className="sub" data-testid="proposal-wait">ждёт завершения хода бота</p> : null}
+        <section>
+          <h3>Что сделано</h3>
+          <p data-testid="proposal-summary">{item.summary}</p>
+          <p className="sub">со слов бота</p>
+        </section>
+        <section>
+          <h3>Файлы</h3>
+          <ul>
+            {item.files.map((file) => (
+              <li key={file.path}>
+                {file.path}
+                {file.is_new ? ' · новый' : ''}
+                {executable(file.path) ? (
+                  <span title={EXEC_HINT} data-testid={`exec-${file.path}`}> · исполняемый/CI</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section>
+          <h3>Правка</h3>
+          <pre data-testid="proposal-diff">{item.diff}</pre>
+        </section>
+        <p className="sub" data-testid="proposal-mode">
+          {item.mode === 'git'
+            ? `ветка ${item.branch ?? ''}. рабочее дерево и текущая ветка не меняются; влейте ветку сами`
+            : 'перед заменой будет снимок'}
+        </p>
+        <footer className="merge-foot">
+          <div className="merge-actions">
+            <button type="button" className="btn ghost" data-testid="proposal-reject" disabled={busy || !proposed} onClick={props.onReject}>
+              Отклонить
+            </button>
+            <button type="button" className="btn primary" data-testid="proposal-apply" disabled={busy || !proposed} onClick={props.onApply}>
+              Применить
+            </button>
+            {applied ? (
+              <button type="button" className="btn" data-testid="proposal-revert" disabled={busy} onClick={() => setConfirmRevert(true)}>
+                {item.mode === 'git' ? 'Удалить ветку' : 'Откатить'}
+              </button>
+            ) : null}
+          </div>
+          {!proposed && !applied ? <p className="sub">Кнопка сейчас неактивна: предложение уже закрыто</p> : null}
+          {confirmRevert ? (
+            <div data-testid="proposal-revert-confirm">
+              <p>Подтвердите откат. Проект изменится только после этого.</p>
+              <button type="button" className="btn" onClick={() => setConfirmRevert(false)}>Не откатывать</button>
+              <button type="button" className="btn primary" data-testid="proposal-revert-yes" disabled={busy} onClick={props.onRevert}>
+                Подтвердить
+              </button>
+            </div>
+          ) : null}
+        </footer>
+      </div>
+    </div>
+  )
+}

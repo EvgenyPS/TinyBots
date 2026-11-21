@@ -10,7 +10,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { open, rename, rm, type FileHandle } from 'node:fs/promises'
+import { chmod, open, rename, rm, type FileHandle } from 'node:fs/promises'
 import path from 'node:path'
 
 export type AtomicHooks = {
@@ -24,6 +24,8 @@ export type AtomicHooks = {
    * между планом и записью путь могли подменить.
    */
   beforeCommit?: () => Promise<void> | void
+  /** POSIX: режим временного файла до rename. Без поля режим не трогаем, C9 не меняется. */
+  mode?: number
 }
 
 const CHUNK = 16 * 1024
@@ -102,6 +104,9 @@ export async function writeAtomic(target: string, body: string | Uint8Array, hoo
     await handle.sync()
     await handle.close()
     handle = undefined
+    if (typeof hooks?.mode === 'number' && process.platform !== 'win32') {
+      await chmod(tmp, hooks.mode & 0o777)
+    }
     if (hooks?.beforeCommit) {
       await hooks.beforeCommit()
     }

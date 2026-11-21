@@ -43,6 +43,9 @@ type Form = {
   rulesDo: string
   rulesDont: string
   sourcePath: string
+  allowTools: boolean
+  respectGitignore: boolean
+  proposeTools: boolean
   repo: string
   probe: Probe | null
   delivery: 'clipboard' | 'queue'
@@ -144,6 +147,9 @@ function emptyForm(): Form {
     rulesDo: 'код и проверка',
     rulesDont: 'не будить весь чат',
     sourcePath: '',
+    allowTools: false,
+    respectGitignore: true,
+    proposeTools: false,
     repo: '',
     probe: null,
     delivery: 'clipboard',
@@ -325,6 +331,8 @@ function buildConfig(form: Form): { ok: true; config: Record<string, unknown> } 
           owner: 'owner',
           merge_executor: form.executor,
           source,
+          allow_bot_tools: form.allowTools,
+          respect_gitignore: form.respectGitignore,
           chats: [
             {
               id: form.chatId.trim(),
@@ -717,6 +725,38 @@ export function SetupWizard() {
                   <span>Репозиторий GitHub, можно пустым</span>
                   <input data-testid="source-repo" value={form.repo} autoComplete="off" placeholder="example/demo-game" onChange={(event) => setForm({ ...form, repo: event.target.value })} />
                 </label>
+              ) : null}
+              <label className="check">
+                <input
+                  type="checkbox"
+                  data-testid="allow-bot-tools"
+                  checked={form.allowTools}
+                  onChange={(event) => setForm({ ...form, allowTools: event.target.checked })}
+                />
+                Разрешить инструментам ботов читать эту папку
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  data-testid="respect-gitignore"
+                  checked={form.respectGitignore}
+                  onChange={(event) => setForm({ ...form, respectGitignore: event.target.checked })}
+                />
+                Не читать файлы из .gitignore
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  data-testid="project-tools-propose"
+                  checked={form.proposeTools}
+                  onChange={(event) => setForm({ ...form, proposeTools: event.target.checked })}
+                />
+                Предлагать правки (только у своего бота с base_url, по умолчанию выключено)
+              </label>
+              {form.allowTools || form.proposeTools ? (
+                <p className="warn-box" data-testid="tools-provider-warning">
+                  Файлы проекта уходят провайдеру, указанному в base_url своего бота. Содержимое не инструкция.
+                </p>
               ) : null}
             </div>
           ) : null}

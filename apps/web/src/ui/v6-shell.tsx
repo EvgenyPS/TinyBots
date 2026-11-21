@@ -13,7 +13,7 @@ import { BriefPanel } from './brief-panel'
 import { DocsPanel } from './docs-panel'
 import { FilesPanel } from './files-panel'
 import { GitPanel } from './git-panel'
-import { MergeModal, type DecideInput, type MergeView } from './merge-modal'
+import { MergeModal, ProposalModal, type DecideInput, type MergeView, type ProposalView } from './merge-modal'
 
 import { useEffect, useState } from 'react'
 
@@ -197,6 +197,8 @@ export function Dashboard() {
   const [botId, setBotId] = useState<string | null>(null)
   const [csrf, setCsrf] = useState('')
   const [mergeId, setMergeId] = useState<string | null>(null)
+  const [proposals, setProposals] = useState<ProposalView[]>([])
+  const [proposalId, setProposalId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [revertOpen, setRevertOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -250,6 +252,28 @@ export function Dashboard() {
     document.title = project ? `Пульт · ${project.title}` : 'Пульт'
   }, [load, projectId, chatId, panel])
 
+  useEffect(() => {
+    if (!projectId) {
+      return
+    }
+    let cancelled = false
+    fetch(`/api/proposals?project=${encodeURIComponent(projectId)}`, { cache: 'no-store' })
+      .then(async (res) => {
+        const body: unknown = await res.json()
+        if (cancelled || !body || typeof body !== 'object') {
+          return
+        }
+        const list = (body as { proposals?: unknown }).proposals
+        if (Array.isArray(list)) {
+          setProposals(list as ProposalView[])
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, tick])
+
   if (load.kind === 'loading') {
     return <main className="setup" data-testid="loading">Загрузка пульта</main>
   }
@@ -297,8 +321,43 @@ export function Dashboard() {
   const blank = data.projects.length === 0 ? 'projects' : data.bots.length === 0 ? 'bots' : null
   const requests = project ? data.merge_requests.filter((item) => item.project_id === project.id) : []
   const awaiting = requests.filter((item) => item.state === 'awaiting_owner')
+  const openProposals = proposals.filter((item) => item.state === 'proposed' || item.state === 'applied' || item.state === 'conflict')
+  const openProposal = proposals.find((item) => item.id === proposalId) ?? null
   const merged = requests.filter((item) => item.state === 'merged')
   const openMr = requests.find((item) => item.id === mergeId) ?? null
+
+  async function actProposal(kind: 'apply' | 'reject' | 'revert', item: ProposalView) {
+    if (!csrf) {
+      setToast('Сессия пульта устарела. Обновите страницу.')
+      return
+    }
+    setBusy(true)
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 200_000)
+    try {
+      const res = await fetch(`/api/proposals/${kind}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify({ id: item.id, patch_sha256: item.patch_sha256 }),
+        signal: controller.signal,
+      })
+      const body: unknown = await res.json()
+      const message = body && typeof body === 'object' && typeof (body as { message?: unknown }).message === 'string'
+        ? (body as { message: string }).message
+        : ''
+      if (!res.ok) {
+        setToast(message || 'Предложение не изменилось.')
+        return
+      }
+      setProposalId(null)
+      setTick((n) => n + 1)
+    } catch {
+      setToast('Пульт не ответил за 200 с. Обновите страницу и проверьте предложение.')
+    } finally {
+      window.clearTimeout(timer)
+      setBusy(false)
+    }
+  }
 
   async function synchronize() {
     if (csrf) {
@@ -419,6 +478,17 @@ export function Dashboard() {
               Запросы на мерж ({awaiting.length})
             </button>
             {awaiting.length === 0 ? <span data-testid="merge-requests-reason">Нет запросов на мерж</span> : null}
+            <button
+              type="button"
+              className="btn"
+              data-testid="proposals"
+              disabled={openProposals.length === 0}
+              title={openProposals.length === 0 ? 'Нет предложений' : 'Открыть предложения'}
+              onClick={() => setProposalId(openProposals[0]?.id ?? null)}
+            >
+              Предложения ({openProposals.length})
+            </button>
+            {openProposals.length === 0 ? <span data-testid="proposals-reason">Нет предложений</span> : null}
             <button
               type="button"
               className="btn"
@@ -613,6 +683,19 @@ export function Dashboard() {
         </div>
       </div>
       {toast ? <p className="toast" data-testid="toast" role="status">{toast}</p> : null}
+      {openProposal ? (
+        <ProposalModal
+          item={openProposal}
+          botName={data.bots.find((bot) => bot.id === openProposal.bot_id)?.name ?? openProposal.bot_id}
+          projectTitle={project?.title ?? openProposal.project_id}
+          busy={busy}
+          waiting={busy}
+          onClose={() => setProposalId(null)}
+          onApply={() => void actProposal('apply', openProposal)}
+          onReject={() => void actProposal('reject', openProposal)}
+          onRevert={() => void actProposal('revert', openProposal)}
+        />
+      ) : null}
       {openMr ? (
         <MergeModal
           key={`${openMr.id}:${openMr.updated_at}:${openMr.iterations.length}:${openMr.state}`}

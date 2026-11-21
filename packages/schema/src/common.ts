@@ -62,8 +62,12 @@ function isUncOrDevicePath(value: string): boolean {
   return slashes.startsWith('//')
 }
 
-/** Имена устройств Windows. С расширением (CON.txt) это всё ещё устройство. */
-const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/
+/**
+ * Имена устройств Windows. С расширением (CON.txt) и с пробелом перед точкой это всё ещё устройство.
+ * COM0/LPT0, CONIN$/CONOUT$/CLOCK$ и надстрочные COM¹–COM³, LPT¹–LPT³ — тоже.
+ * Одна копия: песочница инструментов берёт isReservedDeviceName, а не свой список.
+ */
+const RESERVED_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9]|com[\u00b9\u00b2\u00b3]|lpt[\u00b9\u00b2\u00b3]|conin\$|conout\$|clock\$)$/
 
 /**
  * NTFS срезает хвостовые точки и пробелы и ведущие пробелы.
@@ -73,7 +77,7 @@ function stripSegmentEdges(segment: string): string {
   return segment.replace(/[. ]+$/u, '').replace(/^ +/u, '')
 }
 
-function isReservedDeviceName(segment: string): boolean {
+export function isReservedDeviceName(segment: string): boolean {
   const lower = stripSegmentEdges(segment).toLowerCase()
   const dot = lower.indexOf('.')
   // «CON .txt»: пробел перед точкой не спасает, Windows всё равно видит CON.

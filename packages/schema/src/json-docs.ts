@@ -16,6 +16,7 @@ import { statusSchema } from './status.js'
 import { syncManifestSchema } from './sync.js'
 import { queueSchema, taskSchema } from './task.js'
 import { usageSchema } from './usage.js'
+import { proposalSchema } from './proposal.js'
 import { wakeCountSchema } from './wake.js'
 
 export interface JsonDocument {
@@ -36,6 +37,7 @@ const DOCUMENTS: ReadonlyArray<{ file: string; id: string; schema: ZodType }> = 
   { file: 'chat-log.schema.json', id: 'https://tinybots.local/schema/chat-log.schema.json', schema: chatLogSchema },
   { file: 'api-usage.schema.json', id: 'https://tinybots.local/schema/api-usage.schema.json', schema: apiUsageSchema },
   { file: 'wake-count.schema.json', id: 'https://tinybots.local/schema/wake-count.schema.json', schema: wakeCountSchema },
+  { file: 'proposal.schema.json', id: 'https://tinybots.local/schema/proposal.schema.json', schema: proposalSchema },
 ]
 
 export function jsonDocuments(): JsonDocument[] {

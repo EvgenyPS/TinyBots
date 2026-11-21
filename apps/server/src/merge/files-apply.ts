@@ -18,6 +18,14 @@ import { createHash } from 'node:crypto'
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/
 
+/** Имитация kill: откат в памяти не делается, recover дочитывает снимок. */
+export class ApplyKilled extends Error {
+  constructor() {
+    super('killed')
+    this.name = 'ApplyKilled'
+  }
+}
+
 export async function sha256Of(file: string): Promise<string> {
   const data = await readNoFollow(file)
   return createHash('sha256').update(data).digest('hex')
@@ -101,31 +109,60 @@ type Plan = {
   staging: string
   backup: string
   created: boolean
+  mode?: number
 }
 
-async function readCreated(rootReal: string, mrId: string): Promise<Set<string>> {
-  const file = await locate(rootReal, `backups/${mrId}.manifest.json`, true)
-  if (!file) {
-    throw new Error('путь файла')
+/** Путь внутри отдельного корня снимка или staging. Хвост проходит isMergeFilePath. */
+async function underRoot(root: string, rel: string): Promise<string | null> {
+  if (rel !== '.manifest.json' && !isMergeFilePath(rel)) {
+    return null
   }
-  let raw: string
+  let base: string
   try {
-    const st = await lstat(file)
-    if (st.isSymbolicLink()) {
-      throw new Error('путь файла')
+    const st = await lstat(root)
+    if (st.isSymbolicLink() || !st.isDirectory()) {
+      return null
     }
-    raw = (await readNoFollow(file)).toString('utf8')
-  } catch (error) {
-    if (isEnoent(error)) {
-      return new Set()
+    base = await realpath(root)
+  } catch {
+    return null
+  }
+  const parts = rel.split('/')
+  let current = base
+  let index = 0
+  for (; index < parts.length; index += 1) {
+    const next = path.join(current, parts[index] ?? '')
+    try {
+      const st = await lstat(next)
+      if (st.isSymbolicLink()) {
+        return null
+      }
+      if (index < parts.length - 1 && !st.isDirectory()) {
+        return null
+      }
+      current = next
+    } catch (error) {
+      if (isEnoent(error)) {
+        break
+      }
+      return null
     }
-    throw error
   }
-  const parsed = JSON.parse(raw) as { created?: unknown }
-  if (!Array.isArray(parsed.created)) {
-    return new Set()
+  let real: string
+  try {
+    real = await realpath(index === 0 ? base : current)
+  } catch {
+    return null
   }
-  return new Set(parsed.created.filter((item): item is string => typeof item === 'string'))
+  if (!staysIn(base, real)) {
+    return null
+  }
+  const rest = parts.slice(index)
+  const finalPath = rest.length === 0 ? real : path.resolve(real, ...rest)
+  if (!staysIn(base, finalPath)) {
+    return null
+  }
+  return finalPath
 }
 
 async function rollback(done: readonly Plan[]): Promise<void> {
@@ -137,7 +174,10 @@ async function rollback(done: readonly Plan[]): Promise<void> {
     await assertPathNotSymlink(plan.backup)
     const bytes = await readNoFollow(plan.backup)
     await assertPathNotSymlink(plan.live)
-    await writeAtomic(plan.live, bytes, { beforeCommit: () => assertPathNotSymlink(plan.live) })
+    await writeAtomic(plan.live, bytes, {
+      beforeCommit: () => assertPathNotSymlink(plan.live),
+      mode: plan.mode,
+    })
   }
 }
 
@@ -148,9 +188,17 @@ export async function acceptProjectFiles(input: {
   /** Крюк теста: бросить после успешной замены файла с этим индексом. */
   afterCopy?: (index: number) => void
   /** Крюк теста: бросить после манифеста и до первого копирования. */
-  beforeCopy?: () => void
+  beforeCopy?: () => void | Promise<void>
   /** Крюк теста: подменить путь сразу перед записью этого файла. */
   beforeWrite?: (rel: string) => void
+  /** Повторная проверка прямо перед rename. Предложение сверяет sha256 ещё раз. */
+  beforeCommit?: (rel: string) => Promise<void> | void
+  /** Корень новых байтов. Без него — staging/ внутри папки проекта, как у мержа. */
+  stagingRoot?: string
+  /** Корень снимка. Без него — backups/<id>/ внутри папки проекта. */
+  backupRoot?: string
+  /** Сохранить режим исходника. По умолчанию выключено, чтобы C9 не менял права. */
+  preserveMode?: boolean
 }): Promise<{ backupDir: string }> {
   if (!SLUG.test(input.mrId)) {
     throw new Error('id снимка')
@@ -164,8 +212,12 @@ export async function acceptProjectFiles(input: {
   const plans: Plan[] = []
   for (const rel of input.files) {
     const live = await locate(rootReal, rel)
-    const staging = await locate(rootReal, `staging/${rel}`, true)
-    const backup = await locate(rootReal, `backups/${input.mrId}/${rel}`, true)
+    const staging = input.stagingRoot
+      ? await underRoot(input.stagingRoot, rel)
+      : await locate(rootReal, `staging/${rel}`, true)
+    const backup = input.backupRoot
+      ? await underRoot(input.backupRoot, rel)
+      : await locate(rootReal, `backups/${input.mrId}/${rel}`, true)
     if (!live || !staging || !backup) {
       throw new Error('путь файла')
     }
@@ -179,41 +231,62 @@ export async function acceptProjectFiles(input: {
       throw new Error('путь файла')
     }
     let created = true
+    let mode: number | undefined
     try {
       const liveStat = await lstat(live)
       if (liveStat.isSymbolicLink() || !liveStat.isFile()) {
         throw new Error('путь файла')
       }
       created = false
+      mode = liveStat.mode & 0o777
+      if (input.preserveMode && process.platform === 'win32' && (liveStat.mode & 0o200) === 0) {
+        throw new Error('readonly')
+      }
     } catch (error) {
+      if (error instanceof Error && (error.message === 'путь файла' || error.message === 'readonly')) {
+        throw error
+      }
       if (!isEnoent(error)) {
         throw error
       }
     }
-    plans.push({ rel, live, staging, backup, created })
+    plans.push({ rel, live, staging, backup, created, mode })
   }
-  const manifest = await locate(rootReal, `backups/${input.mrId}.manifest.json`, true)
-  const backupDir = path.join(rootReal, 'backups', input.mrId)
-  if (!manifest || !staysIn(rootReal, backupDir)) {
+  const manifest = input.backupRoot
+    ? await underRoot(input.backupRoot, '.manifest.json')
+    : await locate(rootReal, `backups/${input.mrId}.manifest.json`, true)
+  let backupDir: string
+  try {
+    backupDir = input.backupRoot ? await realpath(input.backupRoot) : path.join(rootReal, 'backups', input.mrId)
+  } catch {
+    throw new Error('путь файла')
+  }
+  if (!manifest) {
+    throw new Error('путь файла')
+  }
+  if (input.backupRoot) {
+    const backupBase = await realpath(input.backupRoot)
+    if (!staysIn(backupBase, backupDir)) {
+      throw new Error('путь файла')
+    }
+  } else if (!staysIn(rootReal, backupDir)) {
     throw new Error('путь файла')
   }
   // Манифест до цикла: kill посреди копирования всё ещё знает, какие файлы были новыми.
   await mkdir(path.dirname(manifest), { recursive: true })
   await assertPathNotSymlink(manifest)
-  const body = `${JSON.stringify({ created: plans.filter((plan) => plan.created).map((plan) => plan.rel) }, null, 2)}\n`
+  const createdList = plans.filter((plan) => plan.created).map((plan) => plan.rel)
+  const body = input.preserveMode
+    ? `${JSON.stringify({
+      created: createdList,
+      modes: Object.fromEntries(plans.filter((plan) => plan.mode !== undefined).map((plan) => [plan.rel, plan.mode])),
+    }, null, 2)}\n`
+    : `${JSON.stringify({ created: createdList }, null, 2)}\n`
   await writeAtomic(manifest, body, { beforeCommit: () => assertPathNotSymlink(manifest) })
   const done: Plan[] = []
   try {
-    input.beforeCopy?.()
-    for (let index = 0; index < plans.length; index += 1) {
-      const plan = plans[index]
-      if (!plan) {
-        throw new Error('путь файла')
-      }
-      input.beforeWrite?.(plan.rel)
-      await assertPathNotSymlink(plan.staging)
+    for (const plan of plans) {
       await mkdir(path.dirname(plan.backup), { recursive: true })
-      await mkdir(path.dirname(plan.live), { recursive: true })
       await assertPathNotSymlink(plan.live)
       // Первый снимок не затираем: повторный перенос не должен подменить исходные байты.
       if (!plan.created) {
@@ -236,14 +309,32 @@ export async function acceptProjectFiles(input: {
           })
         }
       }
+    }
+    await input.beforeCopy?.()
+    for (let index = 0; index < plans.length; index += 1) {
+      const plan = plans[index]
+      if (!plan) {
+        throw new Error('путь файла')
+      }
+      input.beforeWrite?.(plan.rel)
+      await assertPathNotSymlink(plan.staging)
+      await mkdir(path.dirname(plan.live), { recursive: true })
+      await assertPathNotSymlink(plan.live)
       await assertPathNotSymlink(plan.staging)
       await writeAtomic(plan.live, await readNoFollow(plan.staging), {
-        beforeCommit: () => assertPathNotSymlink(plan.live),
+        beforeCommit: async () => {
+          await assertPathNotSymlink(plan.live)
+          await input.beforeCommit?.(plan.rel)
+        },
+        mode: input.preserveMode && plan.mode !== undefined ? plan.mode : undefined,
       })
       done.push(plan)
       input.afterCopy?.(index)
     }
   } catch (error) {
+    if (error instanceof ApplyKilled) {
+      throw error
+    }
     try {
       await rollback(done)
     } catch (rollbackError) {
@@ -259,6 +350,8 @@ export async function restoreProjectFiles(input: {
   projectDir: string
   mrId: string
   files: readonly string[]
+  backupRoot?: string
+  preserveMode?: boolean
 }): Promise<void> {
   if (!SLUG.test(input.mrId)) {
     throw new Error('id снимка')
@@ -269,18 +362,26 @@ export async function restoreProjectFiles(input: {
   } catch {
     throw new Error('путь файла')
   }
-  const created = await readCreated(rootReal, input.mrId)
-  const plans: Array<{ rel: string; live: string; backup: string | null; created: boolean }> = []
+  const manifestPath = input.backupRoot
+    ? await underRoot(input.backupRoot, '.manifest.json')
+    : await locate(rootReal, `backups/${input.mrId}.manifest.json`, true)
+  if (!manifestPath) {
+    throw new Error('путь файла')
+  }
+  const manifest = await readManifest(manifestPath)
+  const plans: Array<{ rel: string; live: string; backup: string | null; created: boolean; mode?: number }> = []
   for (const rel of input.files) {
     const live = await locate(rootReal, rel)
     if (!live) {
       throw new Error('путь файла')
     }
-    if (created.has(rel)) {
+    if (manifest.created.has(rel)) {
       plans.push({ rel, live, backup: null, created: true })
       continue
     }
-    const backup = await locate(rootReal, `backups/${input.mrId}/${rel}`, true)
+    const backup = input.backupRoot
+      ? await underRoot(input.backupRoot, rel)
+      : await locate(rootReal, `backups/${input.mrId}/${rel}`, true)
     if (!backup) {
       throw new Error('путь файла')
     }
@@ -295,7 +396,7 @@ export async function restoreProjectFiles(input: {
       }
       throw error
     }
-    plans.push({ rel, live, backup, created: false })
+    plans.push({ rel, live, backup, created: false, mode: manifest.modes[rel] })
   }
   for (const plan of plans) {
     if (plan.created) {
@@ -309,6 +410,34 @@ export async function restoreProjectFiles(input: {
     await assertPathNotSymlink(plan.backup)
     await writeAtomic(plan.live, await readNoFollow(plan.backup), {
       beforeCommit: () => assertPathNotSymlink(plan.live),
+      mode: input.preserveMode && plan.mode !== undefined ? plan.mode : undefined,
     })
   }
+}
+
+async function readManifest(file: string): Promise<{ created: Set<string>; modes: Record<string, number> }> {
+  let raw: string
+  try {
+    const st = await lstat(file)
+    if (st.isSymbolicLink()) {
+      throw new Error('путь файла')
+    }
+    raw = (await readNoFollow(file)).toString('utf8')
+  } catch (error) {
+    if (isEnoent(error)) {
+      return { created: new Set(), modes: {} }
+    }
+    throw error
+  }
+  const parsed = JSON.parse(raw) as { created?: unknown; modes?: unknown }
+  const created = new Set(Array.isArray(parsed.created) ? parsed.created.filter((item): item is string => typeof item === 'string') : [])
+  const modes: Record<string, number> = {}
+  if (parsed.modes && typeof parsed.modes === 'object') {
+    for (const [key, value] of Object.entries(parsed.modes)) {
+      if (typeof value === 'number') {
+        modes[key] = value
+      }
+    }
+  }
+  return { created, modes }
 }

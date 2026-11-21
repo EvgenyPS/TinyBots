@@ -20,7 +20,7 @@
  * Решение по мержу пишется в outbox и не меняет статус, пока не вызван POST /api/sync/apply.
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { serveStatic } from '@hono/node-server/serve-static'
@@ -39,7 +39,10 @@ import { fetchSiteAllowed, requestAllowed } from './guard.js'
 import { postBotChat, postBriefSend, readBotChat } from './llm/http.js'
 import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
 import { postDecision, postSync } from './merge/http.js'
+import { getProposals, postProposalApply, postProposalReject, postProposalRevert } from './proposals/http.js'
 import type { ConfigFailure } from './config/load.js'
+import { recoverProposals } from './proposals/engine.js'
+import { loadConfigAt, resolveDataDir, selectConfigRequest } from './config/load.js'
 import { repoRoot } from './root.js'
 
 export type RunningServer = {
@@ -73,7 +76,33 @@ function isWrite(method: string, pathname: string): boolean {
     || pathname === '/api/sync/apply'
     || pathname === '/api/chat'
     || pathname === '/api/brief/send'
+    || pathname === '/api/proposals/apply'
+    || pathname === '/api/proposals/reject'
+    || pathname === '/api/proposals/revert'
   )
+}
+
+async function proposalPost(
+  c: { req: { text: () => Promise<string>; header: (name: string) => string | undefined }; json: (body: unknown, status?: number) => Response; header: (name: string, value: string) => void },
+  run: (payload: unknown) => Promise<{ body: Record<string, unknown>; status: number }>,
+  csrfToken: string,
+): Promise<Response> {
+  c.header('Cache-Control', 'no-store')
+  if (!tokensMatch(csrfToken, c.req.header('x-csrf-token'))) {
+    return c.json({ error: 'csrf' }, 403)
+  }
+  const raw = await c.req.text()
+  if (raw.length > SETUP_BODY_LIMIT) {
+    return c.json({ error: 'too_large' }, 413)
+  }
+  let payload: unknown
+  try {
+    payload = JSON.parse(raw) as unknown
+  } catch {
+    return c.json({ error: 'json' }, 400)
+  }
+  const saved = await run(payload)
+  return c.json(saved.body, saved.status)
 }
 
 function isSetupPath(pathname: string): boolean {
@@ -358,6 +387,23 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     return c.json(saved.body, saved.status)
   })
 
+  app.get('/api/proposals', (c) => {
+    const sent = getProposals(root, options, c.req.query('project') ?? '')
+    return c.json(sent.body, sent.status)
+  })
+
+  app.post('/api/proposals/apply', async (c) => {
+    return proposalPost(c, (payload) => setupQueue(() => postProposalApply(root, options, payload)), csrf)
+  })
+
+  app.post('/api/proposals/reject', async (c) => {
+    return proposalPost(c, (payload) => setupQueue(() => postProposalReject(root, options, payload)), csrf)
+  })
+
+  app.post('/api/proposals/revert', async (c) => {
+    return proposalPost(c, (payload) => setupQueue(() => postProposalRevert(root, options, payload)), csrf)
+  })
+
   app.post('/api/sync/apply', async (c) => {
     c.header('Cache-Control', 'no-store')
     if (!tokensMatch(csrf, c.req.header('x-csrf-token'))) {
@@ -396,6 +442,29 @@ function asNodeServer(server: ServerType): Server {
  * configPath и now нужны тестам: подмена конфига и часов без перезапуска процесса-родителя.
  */
 export async function startServer(options?: { port?: number } & AppOptions): Promise<RunningServer> {
+  const root = repoRoot()
+  try {
+    const loaded = loadConfigAt(root, selectConfigRequest(root, options?.configPath))
+    if (loaded.ok) {
+      const dataDir = resolveDataDir(root, loaded.directory, loaded.config.data_dir)
+      if (dataDir.ok) {
+        await recoverProposals(dataDir.dir, (projectId) => {
+          const project = loaded.config.projects.find((item) => item.id === projectId)
+          const folder = project?.source.files?.path
+          if (!folder) {
+            return null
+          }
+          try {
+            return realpathSync(path.isAbsolute(folder) ? folder : path.resolve(loaded.directory, folder))
+          } catch {
+            return null
+          }
+        }, options?.now?.() ?? new Date())
+      }
+    }
+  } catch {
+    // Восстановление не должно ронять пульт: битый json пропускается внутри.
+  }
   const boundPort = options?.boundPort ?? { current: 0 }
   const app = createApp({ ...options, boundPort })
   const port = options?.port ?? 8787
