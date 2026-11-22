@@ -6,7 +6,7 @@
  * До «Применить» пишем только proposals/. Git на создании — rev-parse и symbolic-ref.
  */
 
-import { lstat, mkdir, rm } from 'node:fs/promises'
+import { lstat, mkdir, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { canProposalTransition, type Proposal } from '@tinybots/schema'
 import { ApplyKilled, acceptProjectFiles, restoreProjectFiles, sha256Of } from '../merge/files-apply.js'
@@ -40,6 +40,8 @@ import {
 export type EngineHooks = SandboxHooks & GitHooks & GitKill & {
   afterCopy?: (index: number) => void
   beforeWrite?: (rel: string) => void
+  /** После файлов во временной папке и до rename. Тест обрывает сигнал здесь. */
+  beforePublish?: () => Promise<void> | void
 }
 
 function atIso(now: Date): string {
@@ -49,6 +51,22 @@ function atIso(now: Date): string {
 function live(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new Error('tool_timeout')
+  }
+}
+
+/** Каталог на Windows иногда ещё держит индексатор: EPERM/EBUSY повторяем, как у файла. */
+async function publishDir(from: string, to: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : ''
+      if ((code !== 'EPERM' && code !== 'EBUSY') || attempt === 4) {
+        throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)))
+    }
   }
 }
 
@@ -196,28 +214,45 @@ export async function createProposal(input: {
     git = { ...git, branch: `tinybots/proposal-${id}` }
   }
   const dir = proposalDir(input.dataDir, id)
-  await mkdir(path.join(dir, 'post'), { recursive: true })
-  await writeAtomic(path.join(dir, 'patch.diff'), input.diff)
-  for (const [rel, bytes] of bodies) {
-    const target = path.join(dir, 'post', rel)
-    await mkdir(path.dirname(target), { recursive: true })
-    await writeAtomic(target, bytes)
+  // Сначала временная папка. Таймаут между файлами не оставляет proposals/<id> без json:
+  // rename в боевое имя — только когда тела уже на диске, json пишется следом, ошибка стирает оба.
+  const staging = path.join(path.dirname(dir), `.${id}.partial`)
+  try {
+    live(input.signal)
+    await mkdir(path.join(staging, 'post'), { recursive: true })
+    await writeAtomic(path.join(staging, 'patch.diff'), input.diff)
+    for (const [rel, bytes] of bodies) {
+      live(input.signal)
+      const target = path.join(staging, 'post', rel)
+      await mkdir(path.dirname(target), { recursive: true })
+      await writeAtomic(target, bytes)
+    }
+    if (input.hooks?.beforePublish) {
+      await input.hooks.beforePublish()
+    }
+    live(input.signal)
+    await publishDir(staging, dir)
+    const proposal: Proposal = {
+      schema_version: 1,
+      id,
+      project: input.projectId,
+      bot: input.botId,
+      ...(input.taskId ? { task_id: input.taskId } : {}),
+      summary: input.summary.trim(),
+      state: 'proposed',
+      patch_sha256: sha256Buffer(Buffer.from(input.diff)),
+      mode,
+      files,
+      history: [{ state: 'proposed', at: atIso(input.now), by: input.botId, why: 'propose' }],
+      ...(git ? { git } : {}),
+    }
+    await writeProposal(input.dataDir, proposal)
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 }).catch(() => undefined)
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 }).catch(() => undefined)
+    await rm(proposalFile(input.dataDir, id), { force: true }).catch(() => undefined)
+    throw error
   }
-  const proposal: Proposal = {
-    schema_version: 1,
-    id,
-    project: input.projectId,
-    bot: input.botId,
-    ...(input.taskId ? { task_id: input.taskId } : {}),
-    summary: input.summary.trim(),
-    state: 'proposed',
-    patch_sha256: sha256Buffer(Buffer.from(input.diff)),
-    mode,
-    files,
-    history: [{ state: 'proposed', at: atIso(input.now), by: input.botId, why: 'propose' }],
-    ...(git ? { git } : {}),
-  }
-  await writeProposal(input.dataDir, proposal)
   return { ok: true, id, mode }
 }
 

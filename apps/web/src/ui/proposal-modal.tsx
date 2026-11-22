@@ -3,6 +3,8 @@
  * НАЗНАЧЕНИЕ: окно «Предложение #id», список и бейдж.
  * ВХОД: предложение с диффом. Уведомления лежат поверх диффа и высоту зон не меняют.
  * ВЫХОД: применить, отклонить, откатить. Само предложение проект не пишет.
+ * revert_conflict — правка уже в проекте, откат не прошёл. Тексты этого состояния
+ * не говорят «ничего не записано» и не раздвигают шапку, дифф и подвал: высоты зон фиксированы.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -36,14 +38,14 @@ const STATE_LABEL: Record<string, string> = {
   reverted: 'Откачено',
   reverting: 'Откат',
   conflict: 'Не применяется',
-  revert_conflict: 'Не применяется',
+  revert_conflict: 'Не откатилось',
 }
 
 const HIST_LABEL: Record<string, string> = {
   ...STATE_LABEL,
   proposed: 'Предложено',
   conflict: 'Не применилось',
-  revert_conflict: 'Не применилось',
+  revert_conflict: 'Не откатилось',
 }
 
 const STATE_CLASS: Record<string, string> = {
@@ -282,14 +284,15 @@ function Toast(props: { kind: 'ok' | 'gr' | 'bl'; title: string; text: string; o
   )
 }
 
-function ErrorCard(props: { reason: string; files: string[]; onCollapse: () => void }) {
+function ErrorCard(props: { title: string; hint: string; reason: string; files: string[]; onCollapse: () => void }) {
   const rise = useRise()
   return (
     <div className="merr" data-rise={rise} role="alert" aria-live="assertive" data-testid="proposal-error">
       <div className="merr-b">
         <span className="ic"><Icon d={ICON.warn} /></span>
         <div>
-          <b>Проект изменился после предложения — ничего не записано</b>
+          <b>{props.title}</b>
+          {props.hint ? <span className="why">{props.hint}</span> : null}
           <ul>
             {props.files.map((file) => (
               <li key={file}><span className="mono">{file}</span><span className="why">{props.reason}</span></li>
@@ -343,6 +346,9 @@ export function ProposalModal(props: {
   const reason = filesRevert
     ? 'файлы изменились после применения, откат остановлен'
     : (WHY[item.why] ?? (conflict ? 'проект изменился после предложения' : ''))
+  // applied или revert_conflict в истории: байты или ветка уже в проекте. Отклонить их не стирает.
+  const stayed = item.state === 'revert_conflict' || (item.history ?? []).some((row) => row.state === 'applied' || row.state === 'revert_conflict')
+  const blockedRevert = item.state === 'revert_conflict'
   const headline = item.summary.split('\n')[0] ?? ''
   const hunks = rows.filter((row) => row.kind === 'hunk').length
   const execPaths = item.files.filter((row) => executable(row.path)).map((row) => row.path)
@@ -383,7 +389,9 @@ export function ProposalModal(props: {
       ? { kind: 'ok', title: 'Применено · ветка создана', text: `${item.branch ?? 'ветка'}, 1 коммит. Файлы на диске не менялись.` }
       : { kind: 'ok', title: 'Применено · файлы заменены', text: 'Снимок до замены сохранён — его вернёт «Откатить».' }
   } else if (toastOn && props.notice === 'rejected') {
-    toast = { kind: 'gr', title: 'Отклонено · проект не менялся', text: 'Предложение закрыто и останется в истории 30 дней.' }
+    toast = stayed
+      ? { kind: 'gr', title: 'Отклонено · правка осталась', text: 'Откат не выполнен. Применённая правка остаётся в проекте.' }
+      : { kind: 'gr', title: 'Отклонено · проект не менялся', text: 'Предложение закрыто и останется в истории 30 дней.' }
   } else if (toastOn && props.notice === 'reverted') {
     toast = { kind: 'bl', title: git ? 'Ветка удалена' : 'Откачено · файлы как до применения', text: git ? 'Рабочее дерево не менялось.' : 'Файлы восстановлены из снимка.' }
   }
@@ -474,7 +482,15 @@ export function ProposalModal(props: {
           </div>
           {toast ? <Toast kind={toast.kind} title={toast.title} text={toast.text} onClose={() => setToastOn(false)} /> : null}
           {conflict && errorOpen ? (
-            <ErrorCard reason={reason} files={item.files.map((row) => row.path)} onCollapse={() => setErrorOpen(false)} />
+            <ErrorCard
+              title={blockedRevert
+                ? 'Правка применена и осталась в проекте — откат не выполнен'
+                : 'Проект изменился после предложения — ничего не записано'}
+              hint={blockedRevert ? 'Можно повторить откат или отклонить.' : ''}
+              reason={reason}
+              files={item.files.map((row) => row.path)}
+              onCollapse={() => setErrorOpen(false)}
+            />
           ) : null}
         </div>
         <div className="pm-f">
@@ -494,11 +510,11 @@ export function ProposalModal(props: {
                 : <span><Icon d={ICON.snap} /><b>Снимок</b>{item.history?.find((row) => row.state === 'applied')?.at ? ` · ${when(item.history.find((row) => row.state === 'applied')?.at ?? '')}` : ''} · {ru(item.files.length, 'файл', 'файла', 'файлов')}</span>}
             </div>
           ) : null}
-          {rejected ? <div className="fnote">Отклонено. Проект не менялся.</div> : null}
+          {rejected ? <div className="fnote">{stayed ? 'Отклонено. Правка осталась в проекте.' : 'Отклонено. Проект не менялся.'}</div> : null}
           {reverted ? <div className="fnote">Откачено. Файлы восстановлены, копия правки остаётся в предложении.</div> : null}
           {item.state === 'revert_conflict' ? (
-            <div className="fnote err">
-              <b>Откат остановлен:</b> {reason}
+            <div className="fnote err" title="Правка применена и осталась в проекте. Откат не выполнен — можно повторить или отклонить.">
+              <b>Откат не выполнен.</b> Правка осталась в проекте.
               {!errorOpen ? <button type="button" className="lnk" data-testid="proposal-error-more" onClick={() => setErrorOpen(true)}>Подробнее</button> : null}
             </div>
           ) : conflict ? (

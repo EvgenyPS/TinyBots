@@ -8,9 +8,12 @@ import { writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { stringify } from 'yaml'
 import { afterEach, expect, test } from 'vitest'
+import { repoRoot } from '../root.js'
 import { applyUnifiedDiff } from '../tools/diff.js'
 import { applyProposal, createProposal, revertProposal } from './engine.js'
+import { postProposalRevert } from './http.js'
 import { readProposal } from './store.js'
 
 const dirs: string[] = []
@@ -205,6 +208,35 @@ test('откат из applied при чужих байтах — revert_conflict
   expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('чужое\n')
 })
 
+test('второй revert_conflict подряд не дописывает json и не трогает файл', async () => {
+  const { project, data } = await world()
+  await writeFile(path.join(project, 'note.txt'), 'old\n')
+  const made = await createProposal(input(project, data, 'строка', '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-old\n+new\n'))
+  expect(made.ok).toBe(true)
+  if (!made.ok) {
+    return
+  }
+  const row = readProposal(data, made.id)
+  const body = {
+    dataDir: data,
+    projectReal: project,
+    launcherCwd: project,
+    id: made.id,
+    patchSha: row?.patch_sha256 ?? '',
+    now: NOW,
+    by: 'owner',
+  }
+  expect((await applyProposal(body)).ok).toBe(true)
+  await writeFile(path.join(project, 'note.txt'), 'чужое\n')
+  expect(await revertProposal(body)).toMatchObject({ ok: false, error: 'revert_conflict' })
+  const jsonPath = path.join(data, 'proposals', `${made.id}.json`)
+  const frozen = await readFile(jsonPath)
+  expect(await revertProposal(body)).toMatchObject({ ok: false, error: 'revert_conflict' })
+  expect(await readFile(jsonPath)).toEqual(frozen)
+  expect(readProposal(data, made.id)?.state).toBe('revert_conflict')
+  expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('чужое\n')
+})
+
 test('помеха отката временная: после неё повтор проходит', async () => {
   const { project, data } = await world()
   await writeFile(path.join(project, 'note.txt'), 'old\n')
@@ -229,6 +261,110 @@ test('помеха отката временная: после неё повто
   await writeFile(path.join(project, 'note.txt'), 'new\n')
   expect((await revertProposal(body)).ok).toBe(true)
   expect(readProposal(data, made.id)?.state).toBe('reverted')
+  expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('old\n')
+})
+
+test('текст files при revert_conflict не обещает ветку', async () => {
+  await mkdir(path.join(repoRoot(), 'data'), { recursive: true })
+  const dir = await mkdtemp(path.join(repoRoot(), 'data', 'vitest-files-msg-'))
+  const outside = await mkdtemp(path.join(tmpdir(), 'tinybots-files-msg-'))
+  dirs.push(dir, outside)
+  const project = await realpath(outside)
+  const data = await realpath(dir)
+  await writeFile(path.join(project, 'note.txt'), 'old\n')
+  const config = {
+    schema_version: 1,
+    owner: { name: 'Ника', confirms_merge: true },
+    data_dir: '.',
+    delivery: 'clipboard',
+    bots: [
+      {
+        id: 'nora',
+        name: 'Нора',
+        role: 'справка',
+        instructions: 'Коротко.',
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        base_url: 'http://127.0.0.1:9/v1',
+        api_key_env: 'DEEPSEEK_API_KEY',
+        project_tools: 'propose',
+        apply_mode: 'files',
+      },
+      { id: 'bitk', name: 'Бит', role: 'код' },
+    ],
+    projects: [{
+      id: 'demo-keys',
+      title: 'Demo',
+      lead: 'nora',
+      owner: 'owner',
+      merge_executor: 'bitk',
+      allow_bot_tools: true,
+      source: { files: { path: project } },
+      chats: [{
+        id: 'build',
+        title: 'Сборка',
+        lead: 'nora',
+        members: ['nora'],
+        rules: { do: 'код', dont: 'чужое' },
+        context: [],
+        economy: { wake: 'mentioned_only', reply_limit: 'short' },
+      }],
+    }],
+    economy: { defaults: { wake: 'mentioned_only', reply_limit: 'short', max_wakes_per_task: 3 }, stale_after_hours: 6 },
+  }
+  const configFile = path.join(data, 'config.yaml')
+  await writeFile(configFile, stringify(config))
+  const configPath = path.relative(repoRoot(), configFile).split(path.sep).join('/')
+  const made = await createProposal(input(project, data, 'строка', '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-old\n+new\n'))
+  expect(made.ok).toBe(true)
+  if (!made.ok) {
+    return
+  }
+  const row = readProposal(data, made.id)
+  expect((await applyProposal({
+    dataDir: data,
+    projectReal: project,
+    launcherCwd: project,
+    id: made.id,
+    patchSha: row?.patch_sha256 ?? '',
+    now: NOW,
+    by: 'owner',
+  })).ok).toBe(true)
+  await writeFile(path.join(project, 'note.txt'), 'чужое\n')
+  const reply = await postProposalRevert(repoRoot(), { configPath, now: () => NOW }, {
+    id: made.id,
+    patch_sha256: row?.patch_sha256 ?? '',
+  })
+  expect(reply.status).toBe(409)
+  expect(reply.body).toMatchObject({
+    ok: false,
+    error: 'revert_conflict',
+    message: 'файлы изменились после применения, откат остановлен',
+  })
+  expect(String(reply.body.message)).not.toContain('ветк')
+  expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('чужое\n')
+})
+
+test('обрыв при записи предложения не оставляет папку без json', async () => {
+  const { project, data } = await world()
+  await writeFile(path.join(project, 'note.txt'), 'old\n')
+  const ac = new AbortController()
+  await expect(createProposal({
+    ...input(project, data, 'строка', '--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-old\n+new\n'),
+    signal: ac.signal,
+    hooks: {
+      beforePublish: () => {
+        ac.abort()
+      },
+    },
+  })).rejects.toThrow('tool_timeout')
+  let names: string[] = []
+  try {
+    names = await readdir(path.join(data, 'proposals'))
+  } catch {
+    names = []
+  }
+  expect(names).toEqual([])
   expect(await readFile(path.join(project, 'note.txt'), 'utf8')).toBe('old\n')
 })
 
