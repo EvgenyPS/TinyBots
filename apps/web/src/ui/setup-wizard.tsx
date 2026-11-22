@@ -24,7 +24,23 @@ type SetupInfo = {
 
 type Probe = { path: string; git: boolean; warning: string | null }
 
-type BotForm = { name: string; role: string; id: string; avatar: string; idTouched: boolean }
+type ToolLevel = 'off' | 'read' | 'propose'
+
+type BotForm = {
+  name: string
+  role: string
+  id: string
+  avatar: string
+  idTouched: boolean
+  api: boolean
+  instructions: string
+  provider: string
+  model: string
+  baseUrl: string
+  apiKeyEnv: string
+  projectTools: ToolLevel
+  applyMode: 'git' | 'files'
+}
 
 type Form = {
   ownerName: string
@@ -43,6 +59,8 @@ type Form = {
   rulesDo: string
   rulesDont: string
   sourcePath: string
+  allowTools: boolean
+  respectGitignore: boolean
   repo: string
   probe: Probe | null
   delivery: 'clipboard' | 'queue'
@@ -54,7 +72,7 @@ type Form = {
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
-const KNOWN = new Set(['owner', 'bots', 'project', 'chats', 'source', 'delivery', 'economy'])
+const KNOWN = new Set(['owner', 'bots', 'project', 'chats', 'source', 'access', 'delivery', 'economy'])
 
 const RU: Record<string, string> = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
@@ -123,8 +141,24 @@ function safeTarget(value: string): string {
 }
 
 function emptyBot(): BotForm {
-  return { name: '', role: '', id: '', avatar: '', idTouched: false }
+  return {
+    name: '',
+    role: '',
+    id: '',
+    avatar: '',
+    idTouched: false,
+    api: false,
+    instructions: '',
+    provider: 'deepseek',
+    model: '',
+    baseUrl: '',
+    apiKeyEnv: '',
+    projectTools: 'off',
+    applyMode: 'files',
+  }
 }
+
+const API_KEY_ENV = /^[A-Z][A-Z0-9_]*_API_KEY$/
 
 function emptyForm(): Form {
   return {
@@ -144,6 +178,8 @@ function emptyForm(): Form {
     rulesDo: 'код и проверка',
     rulesDont: 'не будить весь чат',
     sourcePath: '',
+    allowTools: false,
+    respectGitignore: true,
     repo: '',
     probe: null,
     delivery: 'clipboard',
@@ -198,6 +234,17 @@ function validate(step: string, form: Form): string | null {
       }
       if (ids.has(bot.id.trim())) {
         return 'Id ботов должны различаться'
+      }
+      if (bot.api) {
+        if (bot.instructions.trim().length === 0 || bot.model.trim().length === 0) {
+          return 'Своему боту нужны инструкции и модель'
+        }
+        if (!API_KEY_ENV.test(bot.apiKeyEnv.trim())) {
+          return 'Имя ключа — переменная вида NAME_API_KEY'
+        }
+        if (bot.provider === 'other' && bot.baseUrl.trim().length === 0) {
+          return 'Для своего провайдера нужен base_url'
+        }
       }
       ids.add(bot.id.trim())
       if (bot.avatar.trim().length > 0 && !contained(bot.avatar.trim())) {
@@ -301,6 +348,17 @@ function buildConfig(form: Form): { ok: true; config: Record<string, unknown> } 
     if (bot.id.trim() === form.executor) {
       row.executor_for_merge = true
     }
+    if (bot.api) {
+      row.instructions = bot.instructions.trim()
+      row.provider = bot.provider.trim()
+      row.model = bot.model.trim()
+      row.api_key_env = bot.apiKeyEnv.trim()
+      row.project_tools = bot.projectTools
+      row.apply_mode = form.probe?.git && bot.applyMode === 'git' ? 'git' : 'files'
+      if (bot.baseUrl.trim().length > 0) {
+        row.base_url = bot.baseUrl.trim()
+      }
+    }
     return row
   })
   const source: Record<string, unknown> = {}
@@ -325,6 +383,8 @@ function buildConfig(form: Form): { ok: true; config: Record<string, unknown> } 
           owner: 'owner',
           merge_executor: form.executor,
           source,
+          allow_bot_tools: form.allowTools,
+          respect_gitignore: form.respectGitignore,
           chats: [
             {
               id: form.chatId.trim(),
@@ -533,9 +593,9 @@ export function SetupWizard() {
   const probe = form.probe && form.probe.path === pathValue ? form.probe : null
 
   return (
-    <main className="setup wizard" data-testid="setup-wizard">
+    <main className={step?.id === 'access' ? 'setup wizard wide' : 'setup wizard'} data-testid="setup-wizard">
       <p className="k">Мастер</p>
-      <h1 tabIndex={-1} ref={heading}>Настроить</h1>
+      <h1 tabIndex={-1} ref={heading}>{step?.id === 'access' ? 'Доступ к проекту' : 'Настроить'}</h1>
       {loadError ? <p data-testid="setup-error">{loadError}</p> : null}
       {!info && !loadError ? <p data-testid="setup-loading">Загрузка мастера</p> : null}
       {info && step ? (
@@ -592,6 +652,55 @@ export function SetupWizard() {
                     <span>Аватар, можно пустым</span>
                     <input data-testid={`bot-avatar-${botIndex}`} value={bot.avatar} autoComplete="off" onChange={(event) => updateBot(botIndex, { avatar: event.target.value })} />
                   </label>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      data-testid={`bot-api-${botIndex}`}
+                      checked={bot.api}
+                      onChange={(event) => updateBot(botIndex, { api: event.target.checked })}
+                    />
+                    Свой API-бот
+                  </label>
+                  {bot.api ? (
+                    <div>
+                      <label className="field">
+                        <span>Инструкции</span>
+                        <textarea data-testid={`bot-instructions-${botIndex}`} value={bot.instructions} onChange={(event) => updateBot(botIndex, { instructions: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Провайдер</span>
+                        <select data-testid={`bot-provider-${botIndex}`} value={bot.provider} onChange={(event) => updateBot(botIndex, { provider: event.target.value })}>
+                          <option value="deepseek">deepseek</option>
+                          <option value="qwen">qwen</option>
+                          <option value="other">другой</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Модель</span>
+                        <input data-testid={`bot-model-${botIndex}`} value={bot.model} autoComplete="off" onChange={(event) => updateBot(botIndex, { model: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Имя переменной ключа</span>
+                        <input data-testid={`bot-key-${botIndex}`} value={bot.apiKeyEnv} autoComplete="off" onChange={(event) => updateBot(botIndex, { apiKeyEnv: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>base_url, можно пустым для deepseek и qwen</span>
+                        <input data-testid={`bot-base-${botIndex}`} value={bot.baseUrl} autoComplete="off" onChange={(event) => updateBot(botIndex, { baseUrl: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Доступ к папке проекта</span>
+                        <select
+                          data-testid={`bot-tools-${botIndex}`}
+                          value={bot.projectTools}
+                          onChange={(event) => updateBot(botIndex, { projectTools: event.target.value === 'read' || event.target.value === 'propose' ? event.target.value : 'off' })}
+                        >
+                          <option value="off">выключен</option>
+                          <option value="read">только чтение</option>
+                          <option value="propose">чтение и предложения</option>
+                        </select>
+                      </label>
+                    </div>
+                  ) : null}
                   {form.bots.length > 1 ? (
                     <button type="button" className="btn" onClick={() => setForm((prev) => ({ ...prev, bots: prev.bots.filter((_, i) => i !== botIndex) }))}>
                       Убрать
@@ -599,7 +708,7 @@ export function SetupWizard() {
                   ) : null}
                 </div>
               ))}
-              <p className="sub">Свой бот на ключе задаётся в config.yaml: инструкции, провайдер, модель, base_url и имя переменной. Значение ключа остаётся в .env.</p>
+              <p className="sub">Ключ остаётся в .env. В конфиг пишется только имя переменной. У бота Grok доступа к папке нет.</p>
               {form.bots.length < 8 ? (
                 <button type="button" className="btn" onClick={() => setForm((prev) => ({ ...prev, bots: [...prev.bots, emptyBot()] }))}>
                   Ещё бот
@@ -718,6 +827,61 @@ export function SetupWizard() {
                   <input data-testid="source-repo" value={form.repo} autoComplete="off" placeholder="example/demo-game" onChange={(event) => setForm({ ...form, repo: event.target.value })} />
                 </label>
               ) : null}
+            </div>
+          ) : null}
+
+          {step.id === 'access' ? (
+            <div>
+              <p className="sub">Шаг можно поменять потом в настройках бота. Grok папку не видит.</p>
+              {form.bots.map((bot, botIndex) => bot.api ? (
+                <div key={bot.id || botIndex} data-testid={`wizard-access-${botIndex}`}>
+                  <div className="k">{bot.name || 'бот'}</div>
+                  <div className="rcards">
+                    <label className={bot.projectTools === 'off' ? 'rcard on' : 'rcard'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-off-${botIndex}`} checked={bot.projectTools === 'off'} onChange={() => updateBot(botIndex, { projectTools: 'off' })} />
+                      <b>Выключено</b>
+                      <small>бот не видит файлы</small>
+                      <span className="def">по умолчанию</span>
+                    </label>
+                    <label className={bot.projectTools === 'read' ? 'rcard on' : 'rcard'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-read-${botIndex}`} checked={bot.projectTools === 'read'} onChange={() => setForm((current) => ({ ...current, allowTools: true, bots: current.bots.map((item, i) => i === botIndex ? { ...item, projectTools: 'read' } : item) }))} />
+                      <b>Только чтение</b>
+                      <small>поиск и чтение файлов</small>
+                    </label>
+                    <label className={bot.projectTools === 'propose' ? 'rcard on' : 'rcard'}>
+                      <input type="radio" name={`wiz-tools-${botIndex}`} data-testid={`wiz-tools-propose-${botIndex}`} checked={bot.projectTools === 'propose'} onChange={() => setForm((current) => ({ ...current, allowTools: true, bots: current.bots.map((item, i) => i === botIndex ? { ...item, projectTools: 'propose' } : item) }))} />
+                      <b>Чтение и правки</b>
+                      <small>бот предлагает, применяете вы</small>
+                    </label>
+                  </div>
+                  {bot.projectTools === 'off' ? <p className="hint-off">Пока выключено, переключатели ниже не действуют.</p> : null}
+                  <div className={bot.projectTools === 'off' ? 'off-area' : undefined}>
+                    <label className="sw">
+                      <input type="checkbox" data-testid="allow-bot-tools" checked={form.allowTools} onChange={(event) => setForm({ ...form, allowTools: event.target.checked })} />
+                      Разрешить инструментам ботов читать эту папку
+                    </label>
+                    <label className="sw">
+                      <input type="checkbox" data-testid="respect-gitignore" checked={form.respectGitignore} onChange={(event) => setForm({ ...form, respectGitignore: event.target.checked })} />
+                      Не читать файлы из .gitignore
+                    </label>
+                    <div className="seg" data-testid={`wiz-apply-${botIndex}`}>
+                      <label className={bot.applyMode === 'git' ? 'on' : ''}>
+                        <input type="radio" name={`wiz-apply-${botIndex}`} data-testid={`wiz-apply-git-${botIndex}`} checked={bot.applyMode === 'git'} disabled={!form.probe?.git} onChange={() => updateBot(botIndex, { applyMode: 'git' })} />
+                        Git-ветка {form.probe?.git ? <span className="rec">реком.</span> : null}
+                      </label>
+                      <label className={bot.applyMode === 'files' ? 'on' : ''}>
+                        <input type="radio" name={`wiz-apply-${botIndex}`} data-testid={`wiz-apply-files-${botIndex}`} checked={bot.applyMode === 'files'} onChange={() => updateBot(botIndex, { applyMode: 'files' })} />
+                        Снимок файлов
+                      </label>
+                    </div>
+                    {form.probe?.git ? null : <p className="sub">В папке нет git — ветка недоступна, будет снимок.</p>}
+                  </div>
+                  <div className="alert warn" data-testid="tools-provider-warning">Прочитанные файлы уходят провайдеру модели по вашему ключу и тратят токены. .env, ключи, сертификаты и .git бот не видит никогда.</div>
+                  <div className="alert info">Защиты те же: без удаления и переименования, не больше 20 файлов, не больше половины файла.</div>
+                </div>
+              ) : (
+                <p key={bot.id || botIndex} className="sub" data-testid={`wizard-grok-${botIndex}`}>У бота Grok нет доступа к папке.</p>
+              ))}
             </div>
           ) : null}
 

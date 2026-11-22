@@ -6,6 +6,8 @@
  * Имена на экране берутся только отсюда. Демо-список bots.json этот модуль не читает.
  */
 
+import { lstatSync } from 'node:fs'
+import path from 'node:path'
 import { isApiBot, type LauncherConfig, type MergeRequest } from '@tinybots/schema'
 import {
   loadConfigAt,
@@ -29,6 +31,8 @@ export type LauncherBot = {
   provider: string | null
   model: string | null
   usage_label: string | null
+  project_tools: 'off' | 'read' | 'propose' | null
+  apply_mode: 'git' | 'files' | null
 }
 
 export type LauncherProject = {
@@ -39,6 +43,9 @@ export type LauncherProject = {
   lead_name: string
   merge_executor: string
   has_git: boolean
+  allow_bot_tools: boolean
+  respect_gitignore: boolean
+  folder_git: boolean
 }
 
 export type LauncherChat = {
@@ -216,6 +223,19 @@ function nameOf(names: Map<string, string>, id: string): string {
   return names.get(id) ?? id
 }
 
+function folderHasGit(base: string, folder: string | undefined): boolean {
+  if (!folder) {
+    return false
+  }
+  try {
+    const root = path.isAbsolute(folder) ? folder : path.resolve(base, folder)
+    const st = lstatSync(path.join(root, '.git'))
+    return st.isDirectory() && !st.isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
 function leadIds(config: LauncherConfig): Set<string> {
   const ids = new Set<string>()
   for (const project of config.projects) {
@@ -277,6 +297,9 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
       lead_name: nameOf(names, project.lead),
       merge_executor: project.merge_executor,
       has_git: Boolean(project.source.git?.repo),
+      allow_bot_tools: project.allow_bot_tools === true,
+      respect_gitignore: project.respect_gitignore !== false,
+      folder_git: folderHasGit(loaded.directory, project.source.files?.path),
     })),
     bots: config.bots.map((bot) => ({
       id: bot.id,
@@ -288,6 +311,8 @@ export function buildLauncher(root: string, loaded: LoadedConfig, now: Date): La
       provider: isApiBot(bot) ? bot.provider : null,
       model: isApiBot(bot) ? bot.model : null,
       usage_label: isApiBot(bot) ? usageLabel(dataDir.dir, bot.api_key_env) : null,
+      project_tools: isApiBot(bot) ? bot.project_tools : null,
+      apply_mode: isApiBot(bot) ? bot.apply_mode ?? null : null,
     })),
     chats: config.projects.flatMap((project) =>
       project.chats.map((chat) => ({

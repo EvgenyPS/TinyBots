@@ -8,16 +8,18 @@
  * на диске не остаётся, даже если процесс оборвался до публикации.
  * Повтор без confirm_overwrite получает 409, если на диске уже лежит непустой файл.
  * Пустой файл считаем незаписанным и заменяем.
- * Семи шагов хватает на проход: потолок критерия — десять.
+ * Восьми шагов хватает на проход: потолок критерия — десять.
  */
 
 import { randomBytes } from 'node:crypto'
 import { link, mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import { configSchema } from '@tinybots/schema'
+import { configSchema, isApiBot, type LauncherConfig } from '@tinybots/schema'
 import { stringify } from 'yaml'
 import type { ZodError } from 'zod'
 import { z } from 'zod'
+import { realpathSync } from 'node:fs'
+import { dangerousRootReason } from '../tools/roots.js'
 import { writeAtomic } from '../store/atomic.js'
 import { staysInRoot } from './confine.js'
 import { parseConfigText } from './load.js'
@@ -31,6 +33,7 @@ export const SETUP_STEPS = [
   { id: 'project', title: 'Проект' },
   { id: 'chats', title: 'Чаты' },
   { id: 'source', title: 'Источник' },
+  { id: 'access', title: 'Доступ' },
   { id: 'delivery', title: 'Доставка' },
   { id: 'economy', title: 'Экономия' },
 ] as const
@@ -85,6 +88,49 @@ export function describeSetup(root: string, explicit: string | undefined, csrf: 
   }
 }
 
+function toolsRootReason(launcherRoot: string, configDir: string, config: LauncherConfig): string | null {
+  const armed = config.bots.filter((bot) => isApiBot(bot) && bot.project_tools !== 'off')
+  if (armed.length === 0) {
+    return null
+  }
+  let dataReal: string
+  let launcherReal: string
+  try {
+    launcherReal = realpathSync(launcherRoot)
+  } catch {
+    return null
+  }
+  try {
+    dataReal = realpathSync(path.isAbsolute(config.data_dir) ? config.data_dir : path.resolve(configDir, config.data_dir))
+  } catch {
+    dataReal = path.resolve(configDir, config.data_dir)
+  }
+  for (const project of config.projects) {
+    if (project.allow_bot_tools !== true) {
+      continue
+    }
+    const folder = project.source.files?.path
+    if (!folder) {
+      continue
+    }
+    const used = armed.some((bot) => bot.id === project.lead || project.chats.some((chat) => chat.members.includes(bot.id)))
+    if (!used) {
+      continue
+    }
+    let projectReal: string
+    try {
+      projectReal = realpathSync(path.isAbsolute(folder) ? folder : path.resolve(configDir, folder))
+    } catch {
+      continue
+    }
+    const reason = dangerousRootReason(projectReal, launcherReal, dataReal)
+    if (reason) {
+      return reason
+    }
+  }
+  return null
+}
+
 export async function saveSetup(root: string, explicit: string | undefined, payload: unknown): Promise<SetupReply> {
   const envelope = envelopeSchema.safeParse(payload)
   if (!envelope.success) {
@@ -94,10 +140,13 @@ export async function saveSetup(root: string, explicit: string | undefined, payl
   if (!parsed.success) {
     return { status: 422, body: { ok: false, error: 'invalid_config', reason: issueReason(parsed.error) } }
   }
-
   const target = resolveSetupTarget(root, explicit)
   if (!target.ok) {
     return { status: 422, body: { ok: false, error: 'invalid_config', reason: target.reason } }
+  }
+  const toolsRoot = toolsRootReason(root, path.dirname(target.absolute), parsed.data)
+  if (toolsRoot) {
+    return { status: 422, body: { ok: false, error: 'invalid_config', reason: toolsRoot } }
   }
   if (!target.writable || !staysInRoot(root, target.absolute)) {
     return { status: 403, body: { ok: false, error: 'demo_protected' } }

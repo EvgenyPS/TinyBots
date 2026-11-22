@@ -238,3 +238,5 @@ export function MergeModal(props: {
     </div>
   )
 }
+
+export { ProposalModal, ProposalDrawer, proposalBadgeCount, proposalCardMeta, type ProposalView } from './proposal-modal'

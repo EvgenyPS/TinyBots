@@ -4,6 +4,7 @@
  * ВХОД: каталоги data_dir.
  * ВЫХОД: архив и sync_manifest (path, sha256, updated_at).
  * СТАТУС: заглушка. Реализация — PR 7.
+ * proposals/ в бандл не входит: предложения живут только на этом ПК, синк бокс↔ПК их не перевозит.
  */
 
 export function packSyncBundle(): never {

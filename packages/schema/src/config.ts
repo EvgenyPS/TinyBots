@@ -53,6 +53,15 @@ function officialBaseUrl(provider: string): string | undefined {
  * Провайдер deepseek или qwen без base_url получает официальный HTTPS.
  * Явный base_url не подменяется: его можно заменить на другой проверенный адрес.
  */
+/**
+ * Инструменты папки проекта. off — как раньше, без поля tools в запросе.
+ * read — чтение. propose — чтение и предложение правки. propose ставится только явно.
+ */
+export const projectToolsSchema = z.enum(['off', 'read', 'propose'])
+
+/** Как применять правку этого бота. Нет поля — сервер сам берёт git, если в папке есть репозиторий. */
+export const applyModeSchema = z.enum(['git', 'files'])
+
 export const apiBotSchema = z.strictObject({
   ...botCommon,
   instructions: z.string().min(1),
@@ -60,6 +69,8 @@ export const apiBotSchema = z.strictObject({
   model: z.string().min(1),
   base_url: z.string().min(1).optional(),
   api_key_env: z.string().regex(API_KEY_ENV_PATTERN, 'имя переменной *_API_KEY'),
+  project_tools: projectToolsSchema.default('off'),
+  apply_mode: applyModeSchema.optional(),
 }).superRefine((bot, ctx) => {
   const base = bot.base_url ?? officialBaseUrl(bot.provider)
   if (base === undefined || !inspectBaseUrl(base).ok) {
@@ -124,6 +135,10 @@ const projectSchema = z.strictObject({
   merge_executor: idSchema,
   source: sourceSchema,
   chats: z.array(chatSchema),
+  /** Второй ключ инструментов. Без него бот папку не читает, даже если у бота project_tools включён. */
+  allow_bot_tools: z.boolean().default(false),
+  /** Корневой .gitignore. По умолчанию учитываем: непонятная строка закрывает то, что могла задеть. */
+  respect_gitignore: z.boolean().default(true),
 })
 
 export const configSchema = z.strictObject({

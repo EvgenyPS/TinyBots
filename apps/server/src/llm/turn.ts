@@ -13,6 +13,8 @@ import type { LeadBot } from '../briefs/lead.js'
 import { loadConfigAt, resolveDataDir, selectConfigRequest, type ConfigFailure } from '../config/load.js'
 import type { LaunchOptions } from '../launcher/view.js'
 import { completeChat, type LlmResult } from './client.js'
+import { openTools } from '../tools/access.js'
+import { runToolLoop } from '../tools/loop.js'
 import { redact } from '../redact.js'
 import { briefUserText, rulesBaseText, systemPrompt } from './prompt.js'
 import { readApiKey } from './secret.js'
@@ -82,6 +84,7 @@ function upstream(result: Extract<LlmResult, { ok: false }>): TurnFail {
 type Ready = {
   config: LauncherConfig
   dataDir: string
+  configDir: string
   now: Date
 }
 
@@ -94,7 +97,12 @@ function openConfig(root: string, options: LaunchOptions | undefined, deps: Turn
   if (!dataDir.ok) {
     return fail('config', dataDir.reason, 422)
   }
-  return { config: loaded.config, dataDir: dataDir.dir, now: deps.now?.() ?? options?.now?.() ?? new Date() }
+  return {
+    config: loaded.config,
+    dataDir: dataDir.dir,
+    configDir: loaded.directory,
+    now: deps.now?.() ?? options?.now?.() ?? new Date(),
+  }
 }
 
 function asReady(opened: Ready | TurnFail | ConfigFailure): Ready | TurnFail {
@@ -118,13 +126,24 @@ function replyOf(config: LauncherConfig, projectId: string | undefined, chatId: 
   return config.economy.defaults.reply_limit
 }
 
+type Spoken = LlmResult & { proposalId?: string | null }
+
 async function speak(
   root: string,
   bot: ApiBot,
   user: string,
   replyLimit: 'short' | 'long',
   deps: TurnDeps,
-): Promise<LlmResult | TurnFail> {
+  scope?: {
+    config: LauncherConfig
+    dataDir: string
+    configDir: string
+    now: Date
+    projectId?: string
+    chatId?: string
+    taskId?: string
+  },
+): Promise<Spoken | TurnFail> {
   if (bot.paused === true) {
     return fail('paused', `Бот ${bot.name} на паузе.`, 409)
   }
@@ -142,22 +161,64 @@ async function speak(
   } catch {
     return fail('rules', 'Базовые правила не прочитались.', 422)
   }
-  return completeChat({
+  const system = systemPrompt({
+    role: bot.role,
+    instructions: bot.instructions,
+    rulesBase: rules,
+    replyLimit,
+  })
+  const gate = scope
+    ? await openTools({
+      root,
+      config: scope.config,
+      bot,
+      projectId: scope.projectId,
+      chatId: scope.chatId,
+      taskId: scope.taskId,
+      dataDir: scope.dataDir,
+      configDir: scope.configDir,
+      now: scope.now,
+    })
+    : null
+  if (gate && gate.ok === false) {
+    return fail('tools', gate.message, 422)
+  }
+  if (!gate) {
+    return completeChat({
+      baseUrl: bot.base_url,
+      apiKey: key.value,
+      model: bot.model,
+      system,
+      user,
+      fetchImpl: deps.fetchImpl,
+      lookup: deps.lookup,
+      sleep: deps.sleep,
+      timeoutMs: deps.timeoutMs,
+    })
+  }
+  const loop = await runToolLoop({
     baseUrl: bot.base_url,
     apiKey: key.value,
     model: bot.model,
-    system: systemPrompt({
-      role: bot.role,
-      instructions: bot.instructions,
-      rulesBase: rules,
-      replyLimit,
-    }),
+    system,
     user,
+    ctx: gate.ctx,
+    offerPropose: gate.offerPropose,
     fetchImpl: deps.fetchImpl,
     lookup: deps.lookup,
     sleep: deps.sleep,
     timeoutMs: deps.timeoutMs,
   })
+  if (!loop.ok) {
+    if (loop.error === 'deadline' || loop.error === 'limit') {
+      return { ok: true, text: loop.message, usage: loop.usage, toolCalls: [], proposalId: null }
+    }
+    return { ok: false, error: loop.error === 'unauthorized' || loop.error === 'rate_limit' || loop.error === 'timeout' || loop.error === 'too_large' || loop.error === 'ssrf' || loop.error === 'redirect' || loop.error === 'network' || loop.error === 'bad_response' ? loop.error : 'network', message: loop.message, proposalId: null }
+  }
+  const text = loop.proposalId && !loop.text.includes(loop.proposalId)
+    ? `${loop.text}\nпредложение ${loop.proposalId}`
+    : loop.text
+  return { ok: true, text, usage: loop.usage, toolCalls: [], proposalId: loop.proposalId }
 }
 
 export async function deliverChat(input: {
@@ -188,6 +249,14 @@ export async function deliverChat(input: {
       input.text,
       replyOf(ready.config, input.projectId, input.chatId),
       deps,
+      {
+        config: ready.config,
+        dataDir: ready.dataDir,
+        configDir: ready.configDir,
+        now: ready.now,
+        projectId: input.projectId,
+        chatId: input.chatId,
+      },
     )
     if (!('ok' in spoken) || spoken.ok === false) {
       return 'status' in spoken ? spoken : upstream(spoken)
@@ -268,31 +337,30 @@ export async function deliverBrief(input: {
     if (!allowed.ok) {
       return fail('ssrf', 'Адрес модели не разрешён.', 422)
     }
-    let rules = ''
     try {
-      rules = rulesBaseText(input.root)
+      rulesBaseText(input.root)
     } catch {
       return fail('rules', 'Базовые правила не прочитались.', 422)
     }
     await writeWakeCount(ready.dataDir, task.id, count + 1, ready.now)
-    const spoken = await completeChat({
-      baseUrl: bot.base_url,
-      apiKey: key.value,
-      model: bot.model,
-      system: systemPrompt({
-        role: bot.role,
-        instructions: bot.instructions,
-        rulesBase: rules,
-        replyLimit: task.reply_limit,
-      }),
-      user: briefUserText(composed.text),
-      fetchImpl: deps.fetchImpl,
-      lookup: deps.lookup,
-      sleep: deps.sleep,
-      timeoutMs: deps.timeoutMs,
-    })
+    const spoken = await speak(
+      input.root,
+      bot,
+      briefUserText(composed.text),
+      task.reply_limit,
+      deps,
+      {
+        config: ready.config,
+        dataDir: ready.dataDir,
+        configDir: ready.configDir,
+        now: ready.now,
+        projectId: project.id,
+        chatId: chat.id,
+        taskId: task.id,
+      },
+    )
     if (!spoken.ok) {
-      return upstream(spoken)
+      return 'status' in spoken ? spoken : upstream(spoken)
     }
     const reply = redact(spoken.text)
     const at = ready.now.toISOString()

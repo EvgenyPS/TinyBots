@@ -43,6 +43,7 @@ bots: # grok_id — вымышленный id для ссылки grokbot://app/
     model: deepseek-chat
     base_url: "https://api.deepseek.com"
     api_key_env: DEEPSEEK_API_KEY
+    project_tools: "off" # off | read | propose. propose только явно, по умолчанию off
 
 projects:
   - id: demo-game
@@ -50,6 +51,8 @@ projects:
     lead: lead1
     owner: owner # единственный, кто подтверждает мерж
     merge_executor: dev1
+    allow_bot_tools: false # второй ключ. Без него бот папку не читает
+    respect_gitignore: true # корневой .gitignore. Непонятные строки закрывают путь
     source:
       git:
         provider: github

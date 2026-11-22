@@ -16,6 +16,7 @@ bots:
     model: deepseek-chat
     base_url: "https://api.deepseek.com"
     api_key_env: DEEPSEEK_API_KEY
+    project_tools: "off"
   - id: bitk
     name: "Бит"
     role: "код"
@@ -27,6 +28,8 @@ projects:
     lead: nora
     owner: owner
     merge_executor: bitk
+    allow_bot_tools: false
+    respect_gitignore: true
     source:
       files:
         path: "demo-project"

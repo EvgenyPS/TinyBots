@@ -17,7 +17,16 @@ const RETRY_CAP_MS = 60_000
 
 export type TokenUsage = { prompt: number; completion: number; total: number }
 
-export type LlmSuccess = { ok: true; text: string; usage: TokenUsage | null }
+export type ToolCall = { id: string; name: string; arguments: string }
+
+export type ChatTurnMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  tool_call_id?: string
+  tool_calls?: ToolCall[]
+}
+
+export type LlmSuccess = { ok: true; text: string; usage: TokenUsage | null; toolCalls: ToolCall[] }
 
 export type LlmFailure = {
   ok: false
@@ -81,6 +90,26 @@ function readUsage(body: unknown): TokenUsage | null {
     ? usage.total_tokens
     : prompt + completion
   return { prompt, completion, total }
+}
+
+function readToolCalls(message: Record<string, unknown> | null): ToolCall[] {
+  const raw = message?.tool_calls
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  const calls: ToolCall[] = []
+  for (const item of raw) {
+    const row = asRecord(item)
+    const fn = asRecord(row?.function)
+    const id = row?.id
+    const name = fn?.name
+    const args = fn?.arguments
+    if (typeof id !== 'string' || typeof name !== 'string' || typeof args !== 'string') {
+      continue
+    }
+    calls.push({ id, name, arguments: args })
+  }
+  return calls
 }
 
 function readContent(body: unknown): string | null {
@@ -155,6 +184,10 @@ export async function completeChat(input: {
   lookup?: Resolver
   sleep?: (ms: number) => Promise<void>
   timeoutMs?: number
+  /** Общий срок хода. Ретраи 429 его не продлевают. */
+  signal?: AbortSignal
+  messages?: ChatTurnMessage[]
+  tools?: unknown[]
 }): Promise<LlmResult> {
   rememberSecret(input.apiKey)
   const allowed = await ensureBaseUrl(input.baseUrl, input.lookup)
@@ -171,21 +204,46 @@ export async function completeChat(input: {
   const fetchImpl = input.fetchImpl ?? fetch
   const sleep = input.sleep ?? defaultSleep
   const timeoutMs = input.timeoutMs ?? LLM_TIMEOUT_MS
-  const body = JSON.stringify({
-    model: input.model,
-    stream: false,
-    messages: [
-      { role: 'system', content: input.system },
-      { role: 'user', content: input.user },
-    ],
-  })
+  const plain = input.messages === undefined && (input.tools === undefined || input.tools.length === 0)
+  const body = plain
+    ? JSON.stringify({
+      model: input.model,
+      stream: false,
+      messages: [
+        { role: 'system', content: input.system },
+        { role: 'user', content: input.user },
+      ],
+    })
+    : JSON.stringify({
+      model: input.model,
+      stream: false,
+      messages: (input.messages ?? []).map((message) => {
+        if (message.role === 'tool') {
+          return { role: 'tool', tool_call_id: message.tool_call_id ?? '', content: message.content }
+        }
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          return {
+            role: 'assistant',
+            content: message.content,
+            tool_calls: message.tool_calls.map((call) => ({
+              id: call.id,
+              type: 'function',
+              function: { name: call.name, arguments: call.arguments },
+            })),
+          }
+        }
+        return { role: message.role, content: message.content }
+      }),
+      ...(input.tools && input.tools.length > 0 ? { tools: input.tools } : {}),
+    })
+  const signal = input.signal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), input.signal]) : AbortSignal.timeout(timeoutMs)
   for (let attempt = 1; attempt <= LLM_MAX_ATTEMPTS; attempt += 1) {
     let response: Response
     try {
       response = await fetchImpl(endpoint, {
         method: 'POST',
         redirect: 'manual',
-        signal: AbortSignal.timeout(timeoutMs),
+        signal,
         headers: {
           Authorization: `Bearer ${input.apiKey}`,
           'Content-Type': 'application/json',
@@ -213,7 +271,13 @@ export async function completeChat(input: {
       if (attempt === LLM_MAX_ATTEMPTS) {
         return fail('rate_limit')
       }
+      if (input.signal?.aborted) {
+        return fail('timeout')
+      }
       await sleep(retryDelayMs(response.headers.get('retry-after')))
+      if (input.signal?.aborted) {
+        return fail('timeout')
+      }
       continue
     }
     if (response.status < 200 || response.status >= 300) {
@@ -244,11 +308,15 @@ export async function completeChat(input: {
       return fail('bad_response')
     }
     const text = readContent(parsed)
-    if (text === null) {
+    const choices = asRecord(parsed)?.choices
+    const first = Array.isArray(choices) ? asRecord(choices[0]) : null
+    const message = asRecord(first?.message)
+    const toolCalls = input.tools && input.tools.length > 0 ? readToolCalls(message) : []
+    if (text === null && toolCalls.length === 0) {
       logSafe('llm: нет текста ответа')
       return fail('bad_response')
     }
-    return { ok: true, text, usage: readUsage(parsed) }
+    return { ok: true, text: text ?? '', usage: readUsage(parsed), toolCalls }
   }
   return fail('rate_limit')
 }
