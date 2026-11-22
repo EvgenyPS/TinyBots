@@ -83,6 +83,7 @@ npm run e2e
 `npm test` — vitest (схемы, разбор конфига, атомарная запись, API).
 `npm run e2e` сам собирает страницу (`npm run build -w @tinybots/web`) и запускает Playwright 1.65 (нужен Ubuntu 26.04 в `ubuntu-latest`). Перед ним нужен `tsc -b` (его делает и `npm start`): e2e поднимает уже собранный сервер. В CI на Ubuntu браузер ставится `npx playwright install --with-deps chromium`, на Windows — `npx playwright install chromium`. Каталог — штатный кэш вне репозитория (`~/.cache/ms-playwright` или `%LOCALAPPDATA%\ms-playwright`), его же кладёт в кэш Actions. Внутрь дерева браузер не качаем: файл `.links` содержит абсолютный путь и попадает в стоп-лист.
 В CI то же самое на Node 20 и 24, Ubuntu и Windows. Lighthouse и кадры орбиты — отдельный job только на Ubuntu и Node 24.
+Каждый смерженный PR повышает версию (semver) и добавляет запись в CHANGELOG, тег `vX.Y.Z` ставится после мержа.
 Ручная проверка вкладок после быстрого старта: [docs/v1-manual.md](docs/v1-manual.md).
 
 ## Свои боты

@@ -2,13 +2,14 @@
  * FILE: apps/server/src/proposals/store.ts
  * НАЗНАЧЕНИЕ: proposals/ только в data_dir. Папка проекта здесь не открывается.
  * ВХОД: каталог данных и id. Запись через writeAtomic.
- * ВЫХОД: разобранные предложения. Чистка снимает только отклонённые и ни разу не применённые.
+ * ВЫХОД: разобранные предложения. Чистка по сроку снимает только отклонённые и ни разу не применённые.
  * Снимок применённого (applied, reverted) не удаляется ни по сроку, ни по числу.
+ * sweepIncomplete на старте снимает только .<id>.partial и каталог без соседнего <id>.json.
  * Общий объём больше 256 МиБ — новое предложение не пишется.
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { lstat, readdir, rm } from 'node:fs/promises'
+import { lstat, readdir, rm, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { proposalSchema, type Proposal, type ProposalState } from '@tinybots/schema'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -117,6 +118,83 @@ async function dirBytes(dir: string): Promise<number> {
 
 export async function proposalsBytes(dataDir: string): Promise<number> {
   return dirBytes(path.join(dataDir, 'proposals'))
+}
+
+/** Временный каталог записи: proposals/.<id>.partial. Файл с таким именем не трогаем. */
+function isPartialDirName(name: string): boolean {
+  return name.startsWith('.') && name.endsWith('.partial')
+}
+
+/** Прямой ребёнок proposals/. Имя .. и абсолютный путь сюда не проходят. */
+function isDirectChild(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child)
+  return rel.length > 0 && rel === path.basename(rel) && rel !== '.' && rel !== '..'
+}
+
+/**
+ * Недописанное после kill: каталог .<id>.partial или каталог без соседнего <id>.json.
+ * Только прямые дети data_dir/proposals. lstat не идёт по ссылке.
+ * Саму ссылку снимаем через unlink. Каталог — rm, он тоже не следует по ссылкам внутри.
+ * Файл, json и каталог, у которого json уже есть, остаются. Папка проекта сюда не передаётся.
+ */
+export async function sweepIncomplete(dataDir: string): Promise<void> {
+  const root = path.join(dataDir, 'proposals')
+  let names: string[]
+  try {
+    names = await readdir(root)
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (name === '.' || name === '..' || name !== path.basename(name)) {
+      continue
+    }
+    const abs = path.join(root, name)
+    if (!isDirectChild(root, abs)) {
+      continue
+    }
+    let st: Awaited<ReturnType<typeof lstat>>
+    try {
+      st = await lstat(abs)
+    } catch {
+      continue
+    }
+    // Обычный файл, в том числе хвост .tmp, не каталог: эта уборка его не снимает.
+    if (!st.isSymbolicLink() && !st.isDirectory()) {
+      continue
+    }
+    const partial = isPartialDirName(name)
+    if (!partial) {
+      try {
+        await lstat(path.join(root, `${name}.json`))
+        continue
+      } catch {
+        // соседнего json нет — каталог оборвался между rename и записью json
+      }
+    }
+    await removeIncomplete(abs)
+  }
+}
+
+/** Повторный lstat: между проверкой имя могли заменить ссылкой. Ссылку не открываем. */
+async function removeIncomplete(abs: string): Promise<void> {
+  let st: Awaited<ReturnType<typeof lstat>>
+  try {
+    st = await lstat(abs)
+  } catch {
+    return
+  }
+  try {
+    if (st.isSymbolicLink()) {
+      await unlink(abs)
+      return
+    }
+    if (st.isDirectory()) {
+      await rm(abs, { recursive: true, force: true })
+    }
+  } catch {
+    // старт пульта важнее мусора: битый каталог не роняет процесс
+  }
 }
 
 function lastAt(item: Proposal): number {

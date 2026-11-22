@@ -33,6 +33,7 @@ import {
   roomFor,
   sha256Buffer,
   sweepClosed,
+  sweepIncomplete,
   withProposalQueue,
   writeProposal,
 } from './store.js'
@@ -506,8 +507,11 @@ export async function revertProposal(input: {
   })
 }
 
-/** Старт: довести applying/reverting. Повторный вызов ничего не меняет. */
+/** Старт: снять недописанные папки proposals и довести applying/reverting. Повторный вызов ничего не меняет. */
 export async function recoverProposals(dataDir: string, projectRealOf: (project: string) => string | null, now: Date, hooks?: GitHooks): Promise<void> {
+  // Kill между rename и json оставляет каталог без json. Он входит в квоту 256 МиБ.
+  // Уборка только здесь, на старте: во время записи свой .partial ещё нужен.
+  await sweepIncomplete(dataDir)
   for (const item of listProposals(dataDir)) {
     if (item.state !== 'applying' && item.state !== 'reverting') {
       continue
