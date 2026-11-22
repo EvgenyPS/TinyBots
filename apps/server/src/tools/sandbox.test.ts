@@ -403,6 +403,54 @@ test('list_dir с оборванным сигналом не отдаёт спи
   await expect(runTool(tool, 'list_dir', JSON.stringify({ path: '' }), undefined, ac.signal)).rejects.toThrow('tool_timeout')
 })
 
+const SECRET_NAMES = [
+  ['*.crt', 'server.crt'],
+  ['*.cer', 'cert.cer'],
+  ['*.der', 'ca.der'],
+  ['*.p7b', 'bundle.p7b'],
+  ['*.ppk', 'priv.ppk'],
+  ['*.asc', 'key.asc'],
+  ['secring.gpg', 'secring.gpg'],
+  ['*.pfx', 'bundle.pfx'],
+  ['*.p12', 'bundle.p12'],
+  ['*.jks', 'store.jks'],
+  ['*.keystore', 'store.keystore'],
+  ['*.kdbx', 'vault.kdbx'],
+  ['pubring.*', 'pubring.gpg'],
+  ['trustdb.gpg', 'trustdb.gpg'],
+] as const
+
+test.each(SECRET_NAMES)('%s скрыт в list_dir и search, read_file и propose_patch отказывают', async (_pattern, name) => {
+  const { root, ctx } = await layout()
+  await writeFile(path.join(root, name), 'CERTMARK\n')
+  const tool: ToolRunContext = {
+    sandbox: ctx,
+    level: 'propose',
+    projectId: 'project-1',
+    botId: 'bot-1',
+    dataDir: ctx.dataReal ?? root,
+    dataReal: ctx.dataReal ?? root,
+    launcherCwd: root,
+    configReal: null,
+    respectGitignore: true,
+    projectReal: root,
+    now: new Date(),
+    applyMode: 'files',
+  }
+  const read = JSON.parse(await runTool(tool, 'read_file', JSON.stringify({ path: name }))) as { ok?: boolean; error?: string }
+  expect(read, name).toMatchObject({ ok: false, error: 'запрещено' })
+  expect(JSON.stringify(read)).not.toContain('CERTMARK')
+  const listed = JSON.parse(await runTool(tool, 'list_dir', JSON.stringify({ path: '' }))) as { ok?: boolean; entries: Array<{ name: string }> }
+  expect(listed.ok, name).toBe(true)
+  expect(listed.entries.map((item) => item.name)).not.toContain(name)
+  const found = JSON.parse(await runTool(tool, 'search', JSON.stringify({ query: 'CERTMARK' }))) as { ok?: boolean; matches: Array<{ path: string }> }
+  expect(found.ok, name).toBe(true)
+  expect(found.matches.map((item) => item.path)).not.toContain(name)
+  const diff = `--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-CERTMARK\n+other\n`
+  const proposed = JSON.parse(await runTool(tool, 'propose_patch', JSON.stringify({ summary: 'правка', diff }))) as { ok?: boolean; error?: string }
+  expect(proposed, name).toMatchObject({ ok: false, error: 'путь не принят' })
+})
+
 test('I6 hardlink не читается, бинарный файл отдаёт binary, FIFO не читается', async () => {
   const { root, ctx } = await layout()
   await link(path.join(root, 'note.txt'), path.join(root, 'note-link.txt'))
