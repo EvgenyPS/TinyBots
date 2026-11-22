@@ -194,15 +194,11 @@ test('жёсткая ссылка на файл вне проекта', async ()
   }
   const got = await readSandboxedFile(ctx, 'alias.txt')
   console.log(`hardlink-outside platform=${process.platform} lstat.nlink=${st.nlink} fstat.nlink=${fstNlink}`)
-  if (st.nlink > 1n || fstNlink > 1n) {
-    expect(got.ok).toBe(false)
-    expect(JSON.stringify(got)).not.toContain('CANARY-OUTSIDE')
-    return
-  }
-  // Windows: и lstat, и fstat с bigint видят nlink 1. Обход дерева не возвращаем.
-  expect(process.platform).toBe('win32')
-  expect(st.nlink).toBe(1n)
-  expect(fstNlink).toBe(1n)
+  // nlink=1 не «тихий успех»: на Windows libuv заполняет счётчик, регресс должен падать.
+  expect(st.nlink).toBe(2n)
+  expect(fstNlink).toBe(2n)
+  expect(got.ok).toBe(false)
+  expect(JSON.stringify(got)).not.toContain('CANARY-OUTSIDE')
 })
 
 test('ссылка после первой проверки не читается', async () => {
@@ -213,13 +209,10 @@ test('ссылка после первой проверки не читаетс�
     },
   })
   const st = await lstat(path.join(root, 'note.txt'), { bigint: true })
-  if (st.nlink > 1n) {
-    expect(got.ok).toBe(false)
-    expect(JSON.stringify(got)).not.toContain('hello')
-    return
-  }
-  expect(process.platform).toBe('win32')
-  expect(st.nlink).toBe(1n)
+  // Та же ловушка: nlink=1 не должен проходить, даже если чтение случайно отказало по другой причине.
+  expect(st.nlink).toBe(2n)
+  expect(got.ok).toBe(false)
+  expect(JSON.stringify(got)).not.toContain('hello')
 })
 
 test('I6 hardlink в другом каталоге не читается', async () => {
