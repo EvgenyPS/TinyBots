@@ -1,11 +1,11 @@
 /**
  * FILE: apps/server/src/proposals/incomplete.test.ts
- * НАЗНАЧЕНИЕ: Н96. После kill в proposals/ остаётся .<id>.partial или каталог без json.
+ * НАЗНАЧЕНИЕ: Н96, Б1 и Н97. После kill в proposals/ остаётся .<id>.partial или каталог без json.
  * ВХОД: временный data_dir, папка проекта и ссылка наружу.
- * ВЫХОД: мусор снят. Валидное предложение, файлы вне proposals и цель ссылки на месте.
+ * ВЫХОД: мусор снят. Ссылка вместо proposals и каталог с backup/ не разбираются.
  */
 
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
@@ -103,4 +103,47 @@ test('ссылка внутри proposals не ведёт наружу', async (
   expect(await readFile(path.join(kept, 'stay'), 'utf8')).toBe('CANARY\n')
   const stay = await lstat(path.join(kept, 'stay'))
   expect(stay.isSymbolicLink()).toBe(true)
+})
+
+test('proposals-ссылка на внешний каталог ничего снаружи не удаляет', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'tinybots-partial-'))
+  dirs.push(base)
+  const data = path.join(base, 'data')
+  const victim = path.join(base, 'victim')
+  await mkdir(data, { recursive: true })
+  await mkdir(path.join(victim, 'sub'), { recursive: true })
+  await writeFile(path.join(victim, 'sub', 'keep.txt'), 'VICTIM\n')
+  await writeFile(path.join(victim, 'plain.txt'), 'PLAIN\n')
+  const linkPath = path.join(data, 'proposals')
+  await linkDir(victim, linkPath)
+  const lines: string[] = []
+  const prev = console.info
+  console.info = (message?: unknown, ...rest: unknown[]) => {
+    lines.push([message, ...rest].map((item) => String(item)).join(' '))
+  }
+  try {
+    await sweepIncomplete(data)
+  } finally {
+    console.info = prev
+  }
+  expect(await readFile(path.join(victim, 'sub', 'keep.txt'), 'utf8')).toBe('VICTIM\n')
+  expect(await readFile(path.join(victim, 'plain.txt'), 'utf8')).toBe('PLAIN\n')
+  expect(await realpath(linkPath)).toBe(await realpath(victim))
+  const link = await lstat(linkPath)
+  expect(link.isSymbolicLink()).toBe(true)
+  expect(lines.some((line) => line.includes('уборка пропущена'))).toBe(true)
+  expect(lines.join('\n')).not.toContain(victim)
+})
+
+test('каталог без json, но со снимком backup, не снимается', async () => {
+  const { data, proposals } = await layout()
+  const snap = path.join(proposals, 'p6', 'backup', 'a')
+  await mkdir(path.dirname(snap), { recursive: true })
+  await writeFile(snap, 'SNAP\n')
+  await mkdir(path.join(proposals, 'nojson', 'post'), { recursive: true })
+  await writeFile(path.join(proposals, 'nojson', 'post', 'blob.txt'), 'ORPHAN\n')
+  await sweepIncomplete(data)
+  expect(await readFile(snap, 'utf8')).toBe('SNAP\n')
+  await expect(lstat(path.join(proposals, 'p6'))).resolves.toBeTruthy()
+  await expect(lstat(path.join(proposals, 'nojson'))).rejects.toThrow()
 })
