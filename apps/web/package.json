@@ -1,6 +1,6 @@
 {
   "name": "@tinybots/web",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "description": "Страница пульта TinyBots: тёмная оболочка по сетке v6, данные из API.",

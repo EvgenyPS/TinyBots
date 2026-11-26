@@ -2,7 +2,8 @@
  * FILE: apps/web/src/ui/setup-model.ts
  * НАЗНАЧЕНИЕ: состояние мастера, проверка шагов и сборка config.yaml.
  * ВХОД: ответы человека. ВЫХОД: объект конфига или текст ошибки.
- * Поведение полей и пресетов не менялось. Добавлены avatarId и avatarColor.
+ * Id бота в мастере собирается из имени и суффикса -bot. Схему id не меняем.
+ * Id проекта и чата остаются без суффикса.
  */
 
 import type { ProviderFields } from './bot-presets'
@@ -34,6 +35,10 @@ export type BotForm = {
   idTouched: boolean
   api: boolean
   instructions: string
+  /** Какой шаблон выбран. «Своя» — custom, текст может быть пустым или своим. */
+  instructionTemplate: string
+  /** Человек правил поле после шаблона. Смена шаблона тогда спрашивает. */
+  instructionsTouched: boolean
   provider: string
   model: string
   modelCustom: boolean
@@ -76,6 +81,10 @@ export type Form = {
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/
+/** Как в idSchema: один символ плюс ещё 63. */
+const ID_MAX = 64
+/** Суффикс id бота. Дефис уже разрешён схемой, второе поле не заводим. */
+const BOT_SUFFIX = '-bot'
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 export const KNOWN = new Set(['owner', 'bots', 'project', 'chats', 'source', 'access', 'delivery', 'economy'])
 
@@ -86,7 +95,7 @@ const RU: Record<string, string> = {
   ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
 }
 
-export function slugify(raw: string, fallback: string): string {
+export function slugify(raw: string, fallback: string, limit = ID_MAX): string {
   let out = ''
   for (const ch of raw.trim().toLowerCase()) {
     const mapped = RU[ch]
@@ -106,7 +115,105 @@ export function slugify(raw: string, fallback: string): string {
   if (!/^[a-z0-9]/.test(out)) {
     return fallback
   }
-  return out.slice(0, 64)
+  return out.slice(0, limit)
+}
+
+/**
+ * Id бота всегда заканчивается на -bot и не длиннее 64.
+ * Повторный вызов не приклеивает суффикс второй раз.
+ * Основа обрезается, чтобы хвост поместился.
+ */
+export function withBotSuffix(stem: string): string {
+  let bare = stem.trim().toLowerCase()
+  if (bare.endsWith(BOT_SUFFIX)) {
+    bare = bare.slice(0, -BOT_SUFFIX.length)
+  }
+  bare = bare.replace(/-+$/g, '').slice(0, ID_MAX - BOT_SUFFIX.length).replace(/-+$/g, '')
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(bare)) {
+    return ''
+  }
+  return `${bare}${BOT_SUFFIX}`
+}
+
+/** Автогенерация: «Ревик» → revik-bot, пустое имя → bot1-bot. Совпадение получает номер: revik2-bot. */
+export function autoBotId(name: string, index: number, taken: ReadonlySet<string>): string {
+  const fallback = `bot${index + 1}`
+  const stem = name.trim().length === 0 ? fallback : slugify(name, fallback, ID_MAX - BOT_SUFFIX.length)
+  return uniqueBotId(stem, taken)
+}
+
+function uniqueBotId(stem: string, taken: ReadonlySet<string>): string {
+  const base = withBotSuffix(stem)
+  if (base.length > 0 && !taken.has(base)) {
+    return base
+  }
+  const bare = (stem.endsWith(BOT_SUFFIX) ? stem.slice(0, -BOT_SUFFIX.length) : stem).replace(/-+$/g, '')
+  for (let n = 2; n < 10000; n += 1) {
+    const tail = `${n}${BOT_SUFFIX}`
+    const cut = bare.slice(0, ID_MAX - tail.length).replace(/-+$/g, '')
+    if (!/^[a-z0-9]/.test(cut)) {
+      continue
+    }
+    const candidate = `${cut}${tail}`
+    if (candidate.length <= ID_MAX && !taken.has(candidate)) {
+      return candidate
+    }
+  }
+  return base.length > 0 ? base : `bot${BOT_SUFFIX}`
+}
+
+/**
+ * Ручной id. Суффикс дописываем один раз, не на каждый символ.
+ * Уже оканчивается на -bot — оставляем. Пустое поле не заполняем выдумкой.
+ */
+export function finishManualBotId(raw: string): string {
+  const trimmed = raw.trim().toLowerCase()
+  if (trimmed.length === 0) {
+    return ''
+  }
+  if (trimmed.endsWith(BOT_SUFFIX)) {
+    const suffixed = withBotSuffix(trimmed)
+    return suffixed.length > 0 && SLUG.test(suffixed) ? suffixed : trimmed.slice(0, ID_MAX)
+  }
+  const stemmed = slugify(trimmed, '', ID_MAX - BOT_SUFFIX.length)
+  if (stemmed.length === 0) {
+    return trimmed.slice(0, ID_MAX)
+  }
+  const suffixed = withBotSuffix(stemmed)
+  return suffixed.length > 0 ? suffixed : trimmed.slice(0, ID_MAX)
+}
+
+/** Перед проверкой и записью: авто-id пересчитать, ручному дописать суффикс. */
+export function finalizeBots(bots: readonly BotForm[]): BotForm[] {
+  const next: BotForm[] = []
+  for (let index = 0; index < bots.length; index += 1) {
+    const bot = bots[index]
+    if (!bot) {
+      continue
+    }
+    const taken = new Set(next.map((item) => item.id).filter((id) => id.length > 0))
+    if (!bot.idTouched) {
+      next.push({ ...bot, id: autoBotId(bot.name, index, taken) })
+      continue
+    }
+    next.push({ ...bot, id: finishManualBotId(bot.id), idTouched: true })
+  }
+  return next
+}
+
+/** Текст под полем id, когда общая проверка уже споткнулась об этот бот. */
+export function botIdFieldError(bots: readonly BotForm[], index: number): string | null {
+  const id = bots[index]?.id.trim() ?? ''
+  if (id.length === 0) {
+    return null
+  }
+  if (!SLUG.test(id)) {
+    return 'Id бота: строчные буквы, цифры и дефис'
+  }
+  if (bots.some((bot, i) => i !== index && bot.id.trim() === id)) {
+    return 'Id ботов должны различаться'
+  }
+  return null
 }
 
 /** Папка проекта может быть где угодно, в том числе вне лаунчера. Управляющие символы и UNC нельзя. */
@@ -156,6 +263,8 @@ export function emptyBot(): BotForm {
     idTouched: false,
     api: false,
     instructions: '',
+    instructionTemplate: 'custom',
+    instructionsTouched: false,
     provider: 'deepseek',
     model: '',
     modelCustom: false,

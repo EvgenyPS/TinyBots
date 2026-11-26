@@ -24,7 +24,7 @@ export const sample: WizardSample = {
   project: 'Demo Kit',
   chat: 'Сборка',
   source: 'app',
-  botId: 'kedr',
+  botId: 'kedr-bot',
 }
 
 export async function fillUntilSource(page: Page, data: WizardSample): Promise<void> {

@@ -29,7 +29,10 @@ import {
   EXTRA_PROBLEMS,
   KNOWN,
   buildConfig,
+  autoBotId,
   emptyForm,
+  finalizeBots,
+  finishManualBotId,
   isProbe,
   isSetup,
   projectFolderOk,
@@ -106,10 +109,21 @@ export function SetupWizard() {
       bots: prev.bots.map((bot, i) => {
         if (i !== botIndex) return bot
         const next = { ...bot, ...patch }
-        if (patch.name !== undefined && !bot.idTouched) next.id = slugify(patch.name, `bot-${botIndex + 1}`)
         if (touchId) next.idTouched = true
+        // Пока id не правили руками, он едет за именем: Ревик → revik-bot.
+        if (patch.name !== undefined && !next.idTouched) {
+          const taken = new Set(prev.bots.flatMap((item, j) => (j === i || item.id.trim().length === 0 ? [] : [item.id.trim()])))
+          next.id = autoBotId(next.name, i, taken)
+        }
         return next
       }),
+    }))
+  }
+
+  function commitBotId(botIndex: number) {
+    setForm((prev) => ({
+      ...prev,
+      bots: prev.bots.map((bot, i) => (i === botIndex ? { ...bot, id: finishManualBotId(bot.id), idTouched: true } : bot)),
     }))
   }
 
@@ -119,15 +133,16 @@ export function SetupWizard() {
 
   function goNext() {
     if (!step || busy) return
-    const problem = validate(step.id, form)
+    const current = step.id === 'bots' ? { ...form, bots: finalizeBots(form.bots) } : form
+    const problem = validate(step.id, current)
     if (problem) {
-      if (EXTRA_PROBLEMS.has(problem)) setForm(withExtraOpen(form))
+      setForm(EXTRA_PROBLEMS.has(problem) ? withExtraOpen(current) : current)
       setError(problem)
       return
     }
     setError(null)
     setAvatarOpen(false)
-    setForm((prev) => withStepDefaults(step.id, prev))
+    setForm(withStepDefaults(step.id, current))
     setIndex((current) => current + 1)
   }
 
@@ -166,7 +181,7 @@ export function SetupWizard() {
 
   async function save() {
     if (!info || !step || busy) return
-    const prepared = withStepDefaults('project', withStepDefaults('bots', form))
+    const prepared = withStepDefaults('project', withStepDefaults('bots', { ...form, bots: finalizeBots(form.bots) }))
     for (const item of info.steps) {
       const problem = validate(item.id, prepared)
       if (problem) {
@@ -292,7 +307,7 @@ export function SetupWizard() {
                   </div>
                 ) : null}
                 {info && step?.id === 'bots' ? (
-                  <BotsStep form={form} tab={tab} setTab={setTab} avatarOpen={avatarOpen} setAvatarOpen={setAvatarOpen} layer={layer} setForm={setForm} updateBot={updateBot} writeBot={writeBot} />
+                  <BotsStep form={form} tab={tab} setTab={setTab} avatarOpen={avatarOpen} setAvatarOpen={setAvatarOpen} layer={layer} setForm={setForm} updateBot={updateBot} writeBot={writeBot} commitBotId={commitBotId} idError={error} />
                 ) : null}
                 {info && step?.id === 'project' ? (
                   <div className="flex flex-col gap-3.5">
