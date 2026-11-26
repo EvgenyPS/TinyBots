@@ -8,12 +8,15 @@ export default defineConfig({
   resolve: {
     alias: {
       '@tinybots/schema': schemaEntry,
+      // Тот же объект, что страница получает плагином Vite из схемы.
+      'virtual:llm-preset-base-url': schemaEntry,
     },
   },
   test: {
     environment: 'node',
     include: [
       'apps/server/src/**/*.test.ts',
+      'apps/web/src/**/*.test.ts',
       'packages/schema/src/**/*.test.ts',
       'scripts/**/*.test.ts',
     ],

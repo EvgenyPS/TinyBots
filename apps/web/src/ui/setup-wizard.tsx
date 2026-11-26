@@ -5,9 +5,23 @@
  * ВЫХОД: POST /api/setup с тем же токеном. Куда ляжет файл, решает сервер.
  * Без проверки пути дальше нельзя: человек должен увидеть, скрыта ли вкладка Git.
  * Аватар и репозиторий можно пропустить. Очередь доставки по умолчанию выключена.
+ * Свой API-бот: модель из списка, имя ключа и base_url из пресета. Id, ключ и адрес — в «Дополнительно».
  */
 
 import { useEffect, useRef, useState } from 'react'
+import {
+  CUSTOM_MODEL,
+  applyProvider,
+  editBaseUrl,
+  editCustomModel,
+  editKeyEnv,
+  listedModels,
+  modelSelectValue,
+  selectCustomModel,
+  selectListedModel,
+  showCustomModel,
+  type ProviderFields,
+} from './bot-presets'
 
 type Step = { id: string; title: string }
 
@@ -36,8 +50,13 @@ type BotForm = {
   instructions: string
   provider: string
   model: string
+  modelCustom: boolean
+  modelTouched: boolean
   baseUrl: string
+  baseUrlTouched: boolean
   apiKeyEnv: string
+  apiKeyEnvTouched: boolean
+  extraOpen: boolean
   projectTools: ToolLevel
   applyMode: 'git' | 'files'
 }
@@ -151,10 +170,47 @@ function emptyBot(): BotForm {
     instructions: '',
     provider: 'deepseek',
     model: '',
+    modelCustom: false,
+    modelTouched: false,
     baseUrl: '',
+    baseUrlTouched: false,
     apiKeyEnv: '',
+    apiKeyEnvTouched: false,
+    extraOpen: false,
     projectTools: 'off',
     applyMode: 'files',
+  }
+}
+
+const EXTRA_PROBLEMS = new Set([
+  'Id бота: строчные буквы, цифры и дефис',
+  'Id ботов должны различаться',
+  'Имя ключа — переменная вида NAME_API_KEY',
+  'Для своего провайдера нужен base_url',
+])
+
+function fieldsOf(bot: BotForm): ProviderFields {
+  return {
+    provider: bot.provider,
+    model: bot.model,
+    modelCustom: bot.modelCustom,
+    modelTouched: bot.modelTouched,
+    baseUrl: bot.baseUrl,
+    baseUrlTouched: bot.baseUrlTouched,
+    apiKeyEnv: bot.apiKeyEnv,
+    apiKeyEnvTouched: bot.apiKeyEnvTouched,
+  }
+}
+
+function withFields(bot: BotForm, fields: ProviderFields): BotForm {
+  return { ...bot, ...fields }
+}
+
+/** Ошибка в свёрнутом блоке: раскрываем его, иначе человек не увидит поле. */
+function withExtraOpen(form: Form): Form {
+  return {
+    ...form,
+    bots: form.bots.map((bot) => ({ ...bot, extraOpen: true })),
   }
 }
 
@@ -486,12 +542,22 @@ export function SetupWizard() {
     }))
   }
 
+  function writeBot(botIndex: number, recipe: (bot: BotForm) => BotForm) {
+    setForm((prev) => ({
+      ...prev,
+      bots: prev.bots.map((bot, i) => (i === botIndex ? recipe(bot) : bot)),
+    }))
+  }
+
   function goNext() {
     if (!step || busy) {
       return
     }
     const problem = validate(step.id, form)
     if (problem) {
+      if (EXTRA_PROBLEMS.has(problem)) {
+        setForm(withExtraOpen(form))
+      }
       setError(problem)
       return
     }
@@ -547,7 +613,7 @@ export function SetupWizard() {
     for (const item of info.steps) {
       const problem = validate(item.id, prepared)
       if (problem) {
-        setForm(prepared)
+        setForm(EXTRA_PROBLEMS.has(problem) ? withExtraOpen(prepared) : prepared)
         setError(problem)
         return
       }
@@ -636,18 +702,16 @@ export function SetupWizard() {
             <div>
               {form.bots.map((bot, botIndex) => (
                 <div className="bot-row" key={botIndex}>
-                  <label className="field">
-                    <span>Имя</span>
-                    <input data-testid={`bot-name-${botIndex}`} value={bot.name} autoComplete="off" onChange={(event) => updateBot(botIndex, { name: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>Роль</span>
-                    <input data-testid={`bot-role-${botIndex}`} value={bot.role} autoComplete="off" onChange={(event) => updateBot(botIndex, { role: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>Id</span>
-                    <input data-testid={`bot-id-${botIndex}`} value={bot.id} autoComplete="off" onChange={(event) => updateBot(botIndex, { id: event.target.value }, true)} />
-                  </label>
+                  <div className="bot-pair" data-testid={`bot-pair-name-${botIndex}`}>
+                    <label className="field">
+                      <span>Имя</span>
+                      <input data-testid={`bot-name-${botIndex}`} value={bot.name} autoComplete="off" onChange={(event) => updateBot(botIndex, { name: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Роль</span>
+                      <input data-testid={`bot-role-${botIndex}`} value={bot.role} autoComplete="off" onChange={(event) => updateBot(botIndex, { role: event.target.value })} />
+                    </label>
+                  </div>
                   <label className="field">
                     <span>Аватар, можно пустым</span>
                     <input data-testid={`bot-avatar-${botIndex}`} value={bot.avatar} autoComplete="off" onChange={(event) => updateBot(botIndex, { avatar: event.target.value })} />
@@ -657,7 +721,15 @@ export function SetupWizard() {
                       type="checkbox"
                       data-testid={`bot-api-${botIndex}`}
                       checked={bot.api}
-                      onChange={(event) => updateBot(botIndex, { api: event.target.checked })}
+                      onChange={(event) => {
+                        const api = event.target.checked
+                        writeBot(botIndex, (current) => {
+                          if (!api) {
+                            return { ...current, api: false }
+                          }
+                          return withFields({ ...current, api: true }, applyProvider(fieldsOf(current), current.provider))
+                        })
+                      }}
                     />
                     Свой API-бот
                   </label>
@@ -667,26 +739,49 @@ export function SetupWizard() {
                         <span>Инструкции</span>
                         <textarea data-testid={`bot-instructions-${botIndex}`} value={bot.instructions} onChange={(event) => updateBot(botIndex, { instructions: event.target.value })} />
                       </label>
-                      <label className="field">
-                        <span>Провайдер</span>
-                        <select data-testid={`bot-provider-${botIndex}`} value={bot.provider} onChange={(event) => updateBot(botIndex, { provider: event.target.value })}>
-                          <option value="deepseek">deepseek</option>
-                          <option value="qwen">qwen</option>
-                          <option value="other">другой</option>
-                        </select>
-                      </label>
-                      <label className="field">
-                        <span>Модель</span>
-                        <input data-testid={`bot-model-${botIndex}`} value={bot.model} autoComplete="off" onChange={(event) => updateBot(botIndex, { model: event.target.value })} />
-                      </label>
-                      <label className="field">
-                        <span>Имя переменной ключа</span>
-                        <input data-testid={`bot-key-${botIndex}`} value={bot.apiKeyEnv} autoComplete="off" onChange={(event) => updateBot(botIndex, { apiKeyEnv: event.target.value })} />
-                      </label>
-                      <label className="field">
-                        <span>base_url, можно пустым для deepseek и qwen</span>
-                        <input data-testid={`bot-base-${botIndex}`} value={bot.baseUrl} autoComplete="off" onChange={(event) => updateBot(botIndex, { baseUrl: event.target.value })} />
-                      </label>
+                      <div className="bot-pair" data-testid={`bot-pair-model-${botIndex}`}>
+                        <label className="field">
+                          <span>Провайдер</span>
+                          <select
+                            data-testid={`bot-provider-${botIndex}`}
+                            value={bot.provider}
+                            onChange={(event) => {
+                              const provider = event.target.value
+                              writeBot(botIndex, (current) => withFields(current, applyProvider(fieldsOf(current), provider)))
+                            }}
+                          >
+                            <option value="deepseek">deepseek</option>
+                            <option value="qwen">qwen</option>
+                            <option value="other">другой</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span>Модель</span>
+                          <select
+                            data-testid={`bot-model-${botIndex}`}
+                            value={modelSelectValue(fieldsOf(bot))}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              writeBot(botIndex, (current) => withFields(
+                                current,
+                                value === CUSTOM_MODEL ? selectCustomModel(fieldsOf(current)) : selectListedModel(fieldsOf(current), value),
+                              ))
+                            }}
+                          >
+                            {listedModels(bot.provider).map((model) => <option key={model} value={model}>{model}</option>)}
+                            <option value={CUSTOM_MODEL}>своя</option>
+                          </select>
+                        </label>
+                      </div>
+                      {showCustomModel(fieldsOf(bot)) ? (
+                        <label className="field">
+                          <span>Своя модель</span>
+                          <input data-testid={`bot-model-custom-${botIndex}`} value={bot.model} autoComplete="off" onChange={(event) => {
+                            const model = event.target.value
+                            writeBot(botIndex, (current) => withFields(current, editCustomModel(fieldsOf(current), model)))
+                          }} />
+                        </label>
+                      ) : null}
                       <label className="field">
                         <span>Доступ к папке проекта</span>
                         <select
@@ -698,9 +793,46 @@ export function SetupWizard() {
                           <option value="read">только чтение</option>
                           <option value="propose">чтение и предложения</option>
                         </select>
+                        <span className="field-hint">Выключен — бот не видит файлы. Чтение — только смотрит. Предложения — готовит правку, применяете вы.</span>
                       </label>
                     </div>
                   ) : null}
+                  <details
+                    className="bot-extra"
+                    data-testid={`bot-extra-${botIndex}`}
+                    open={bot.extraOpen}
+                    onToggle={(event) => {
+                      const open = event.currentTarget.open
+                      writeBot(botIndex, (current) => (current.extraOpen === open ? current : { ...current, extraOpen: open }))
+                    }}
+                  >
+                    <summary data-testid={`bot-extra-summary-${botIndex}`}>Дополнительно</summary>
+                    <label className="field">
+                      <span>Id</span>
+                      <input data-testid={`bot-id-${botIndex}`} value={bot.id} autoComplete="off" onChange={(event) => updateBot(botIndex, { id: event.target.value }, true)} />
+                      <span className="field-hint">Короткое имя латиницей. Пока не поправите, собирается из имени.</span>
+                    </label>
+                    {bot.api ? (
+                      <>
+                        <label className="field">
+                          <span>Имя переменной ключа</span>
+                          <input data-testid={`bot-key-${botIndex}`} value={bot.apiKeyEnv} autoComplete="off" onChange={(event) => {
+                            const apiKeyEnv = event.target.value
+                            writeBot(botIndex, (current) => withFields(current, editKeyEnv(fieldsOf(current), apiKeyEnv)))
+                          }} />
+                          <span className="field-hint">Имя, под которым лаунчер хранит ключ. Сам ключ вводится в окне «Ключи», не здесь.</span>
+                        </label>
+                        <label className="field">
+                          <span>base_url</span>
+                          <input data-testid={`bot-base-${botIndex}`} value={bot.baseUrl} autoComplete="off" onChange={(event) => {
+                            const baseUrl = event.target.value
+                            writeBot(botIndex, (current) => withFields(current, editBaseUrl(fieldsOf(current), baseUrl)))
+                          }} />
+                          <span className="field-hint">Адрес API. Для DeepSeek и Qwen уже подставлен, можно заменить.</span>
+                        </label>
+                      </>
+                    ) : null}
+                  </details>
                   {form.bots.length > 1 ? (
                     <button type="button" className="btn" onClick={() => setForm((prev) => ({ ...prev, bots: prev.bots.filter((_, i) => i !== botIndex) }))}>
                       Убрать

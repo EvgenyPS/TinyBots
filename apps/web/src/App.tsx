@@ -5,9 +5,11 @@
  * ВЫХОД: мастер или пульт. Список каркаса /api/bots страница не рисует.
  */
 
-import { useEffect, useState } from 'react'
-import { SetupWizard } from './ui/setup-wizard'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Dashboard } from './ui/v6-shell'
+
+// Мастер тянет пресеты схемы. На пульте этот кусок не нужен, поэтому грузится отдельно.
+const SetupWizard = lazy(() => import('./ui/setup-wizard').then((mod) => ({ default: mod.SetupWizard })))
 
 type Gate = 'pending' | 'wizard' | 'dash'
 
@@ -51,7 +53,11 @@ export function App() {
     return <main className="setup" data-testid="loading">Загрузка</main>
   }
   if (gate === 'wizard') {
-    return <SetupWizard />
+    return (
+      <Suspense fallback={<main className="setup" data-testid="setup-loading">Загрузка мастера</main>}>
+        <SetupWizard />
+      </Suspense>
+    )
   }
   return <Dashboard />
 }

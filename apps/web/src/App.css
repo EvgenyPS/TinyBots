@@ -384,6 +384,15 @@ h3 { font-size: 13px; margin: 12px 0 4px; }
 .warn-box { background: rgba(226, 182, 87, 0.15); border: 1px solid rgba(226, 182, 87, 0.45); color: var(--warn); }
 .ok-box { background: rgba(61, 204, 138, 0.12); border: 1px solid rgba(61, 204, 138, 0.4); }
 .bot-row { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.bot-pair { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; }
+.bot-pair .field { min-width: 0; }
+.field span.field-hint { color: var(--faint); font-size: 11px; line-height: 1.35; }
+.bot-extra { margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 2px; }
+.bot-extra summary { cursor: pointer; color: var(--ink); font-size: 13px; }
+.bot-extra summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .bot-pair { grid-template-columns: 1fr; }
+}
 .btn.ghost { background: transparent; }
 .toast {
   position: fixed;
