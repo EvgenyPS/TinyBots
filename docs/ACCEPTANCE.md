@@ -148,14 +148,14 @@
 
 ## H. Свои боты на ключах
 
-Бот Grok не меняется: полей модели нет, буфер и `grokbot://` на месте. Ключ своего бота живёт в `.env`. Тесты и CI вызывают только локальный мок OpenAI-совместимого API, без настоящих ключей и без сети к провайдеру.
+Бот Grok не меняется: полей модели нет, буфер и `grokbot://` на месте. Ключ своего бота живёт в хранилище ОС или в `.env`. Тесты и CI вызывают только локальный мок OpenAI-совместимого API, без настоящих ключей и без сети к провайдеру.
 
 | ID | Критерий | Как проверяем |
 |---|---|---|
 | H1 | Создание: имя, роль, инструкции, провайдер, модель, `base_url`. Бот в рейле, орбите и `/api/roster`. В конфиге только `api_key_env` по шаблону `^[A-Z][A-Z0-9_]*_API_KEY$`: `DEEPSEEK_API_KEY` проходит, `GITHUB_TOKEN`, `PATH` и `GITHUB_API_BASE` отвергаются. Пресет deepseek/qwen без адреса подставляет официальный HTTPS | `packages/schema/src/bots.test.ts`, `e2e/h-api-bots.spec.ts` |
 | H2 | Поля модели у ботов Grok не появляются. Буфер и `grokbot://` без регрессии на `demo/sets/primary` (B5/B10) | `apps/server/src/launcher/api.test.ts`, `e2e/b5-brief.spec.ts` |
 | H3 | Смена провайдера или модели действует со следующего сообщения и брифа: поле `model` во втором запросе к моку | `apps/server/src/llm/flow.test.ts`, `e2e/h-api-bots.spec.ts` |
-| H4 | Ключ только в `.env`. Имя вне шаблона отвергается. Нет ключа в конфиге, `data_dir`, бандле, ответах API, ошибках, логах и git. Промпты и ответы не в журнале процесса. Ключ в реплике и в ответе становится `[secret]` и в ответе API, и в `chats/<bot>.json` | `packages/schema/src/bots.test.ts`, `apps/server/src/llm/client.test.ts`, `apps/server/src/llm/flow.test.ts`, gitleaks |
+| H4 | Ключ в хранилище ОС или в `.env`. Имя вне шаблона отвергается. Нет ключа в конфиге, `data_dir`, бандле, ответах API, ошибках, логах и git. Промпты и ответы не в журнале процесса. Ключ в реплике и в ответе становится `[secret]` и в ответе API, и в `chats/<bot>.json` | `packages/schema/src/bots.test.ts`, `apps/server/src/llm/client.test.ts`, `apps/server/src/llm/flow.test.ts`, gitleaks |
 | H5 | Только локальный мок. В тестах и в CI нет реальных вызовов и ключей | `e2e/h-api-bots.spec.ts`, `apps/server/src/llm/client.test.ts` |
 | H6 | SSRF: таблица URL (IPv6, числовые IPv4, `0.0.0.0`, `::1` вне исключения, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`, `::/96`, `fec0::/10`, `::ffff:0:0:0/96`). `redirect: 'manual'`: любой 3xx — ошибка, цель редиректа не вызывается. Адреса после DNS проходят те же правила | `packages/schema/src/base-url.test.ts`, `apps/server/src/llm/client.test.ts` |
 | H7 | 401 без повтора. 429 — не больше 3 повторов (всего ≤ 4 попыток), `Retry-After` не дольше 60 с. Таймаут 60 с, обрыв, тело больше 1 МиБ. Заголовки без тела и обрыв после заголовков — ошибка, процесс жив, стека в логе нет. Ключ не светится. `stream: false` | `apps/server/src/llm/client.test.ts` |
@@ -167,6 +167,7 @@
 | H13 | Расход по полю `usage` и имени переменной ключа, отдельно от недельной оценки. Нет `usage` — «нет данных», оценка не пишется. Файл в `data_dir` по своей схеме, атомарно. Значения ключа в файле нет | `apps/server/src/llm/store.test.ts`, `apps/server/src/llm/flow.test.ts` |
 | H14 | Новые POST в `isWrite` вместе с CSRF и Origin. Без токена, с чужим токеном и без Origin — 403, мок не вызван. Н59, пять случаев: `same-site` и `cross-site` — 403, мок молчит; `same-origin`, `none` и без заголовка — 200 | `apps/server/src/files/files.test.ts`, `apps/server/src/llm/flow.test.ts` |
 | H15 | Документы из списка, гигиена, `check-forbidden`, gitleaks. Остаточный риск TOCTOU ребайндинга — `docs/ARCH.md` | ревью документов, CI |
+| H16 | Значение ключа своего бота можно держать в хранилище ОС: сервис `tinybots`, учётная запись — имя ключа (`^[A-Z][A-Z0-9_]*_API_KEY$`). В конфиге по-прежнему только имя. Хранилище важнее `.env`. Модуль не загрузился или хранилище недоступно — берётся `.env`, процесс жив, значение не печатается. `secret:set` читает stdin без эха, `secret:check` пишет только «есть в хранилище», «есть в .env» или «нет». Удаления ключа нет | `apps/server/src/llm/secret.test.ts`, `scripts/secret.test.ts` |
 
 ## I. Инструменты папки и предложения правок
 

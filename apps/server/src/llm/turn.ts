@@ -1,7 +1,7 @@
 /**
  * FILE: apps/server/src/llm/turn.ts
  * НАЗНАЧЕНИЕ: один ход своего бота — чат в пульте или бриф по задаче.
- * ВХОД: конфиг, id бота или задача. Ключ читается из окружения по api_key_env.
+ * ВХОД: конфиг, id бота или задача. Ключ читается по api_key_env: хранилище ОС, затем окружение.
  * ВЫХОД: текст ответа. Записка пишется только из брифа и только если она проходит statusSchema.
  * Задача из записки не становится done, мерж не стартует, lead и assignee не меняются.
  * Пробуждение — отправка брифа. Счётчик на диске, четвёртый ход при лимите 3 до модели не доходит.
@@ -149,7 +149,7 @@ async function speak(
   }
   const key = readApiKey(bot.api_key_env, deps.env)
   if (!key.ok) {
-    return fail('no_key', 'Ключа в окружении нет.', 422)
+    return fail('no_key', 'Ключа нет.', 422)
   }
   const allowed = await ensureBaseUrl(bot.base_url, deps.lookup)
   if (!allowed.ok) {
@@ -331,7 +331,7 @@ export async function deliverBrief(input: {
     }
     const key = readApiKey(bot.api_key_env, deps.env)
     if (!key.ok) {
-      return fail('no_key', 'Ключа в окружении нет.', 422)
+      return fail('no_key', 'Ключа нет.', 422)
     }
     const allowed = await ensureBaseUrl(bot.base_url, deps.lookup)
     if (!allowed.ok) {
