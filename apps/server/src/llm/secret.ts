@@ -1,15 +1,15 @@
 /**
  * FILE: apps/server/src/llm/secret.ts
  * НАЗНАЧЕНИЕ: взять ключ своего бота.
- * ВХОД: имя переменной. Сначала хранилище ОС (сервис tinybots), затем окружение после .env.
+ * ВХОД: имя переменной. Сначала хранилище ОС (сервис tinybots, таймаут 2 с), затем окружение после .env.
  * ВЫХОД: значение только для заголовка Authorization. Сразу rememberSecret.
- * В ошибку, лог и data_dir значение не кладём. Сбой хранилища не печатаем и не роняем процесс.
+ * В ошибку, лог и data_dir значение не кладём. Сбой и зависание хранилища не печатаем и не роняем процесс.
  */
 
 import { API_KEY_ENV_PATTERN } from '@tinybots/schema'
 import { z } from 'zod'
 import { rememberSecret } from '../redact.js'
-import { readOsSecret } from './os-secret.js'
+import { readCachedOsSecret } from './os-secret.js'
 
 /**
  * Имя ключа своего бота: заглавные A–Z, цифры и _.
@@ -19,13 +19,6 @@ export const apiKeyNameSchema = z.string().regex(API_KEY_ENV_PATTERN, 'имя п
 
 export type ApiKeyResult = { ok: true; value: string } | { ok: false; reason: string }
 
-let osReader: (name: string) => string | null = readOsSecret
-
-/** Подмена хранилища в тестах. null возвращает настоящий читатель. */
-export function useOsSecretReader(reader: ((name: string) => string | null) | null): void {
-  osReader = reader ?? readOsSecret
-}
-
 function fromEnv(name: string, env: NodeJS.ProcessEnv): string | null {
   const value = env[name]
   if (value === undefined || value.trim().length === 0) {
@@ -34,15 +27,14 @@ function fromEnv(name: string, env: NodeJS.ProcessEnv): string | null {
   return value
 }
 
-export function readApiKey(name: string, env: NodeJS.ProcessEnv = process.env): ApiKeyResult {
+export async function readApiKey(name: string, env: NodeJS.ProcessEnv = process.env): Promise<ApiKeyResult> {
   const parsed = apiKeyNameSchema.safeParse(name)
   if (!parsed.success) {
     return { ok: false, reason: 'имя переменной ключа не подходит' }
   }
   let fromOs: string | null = null
   try {
-    const raw = osReader(parsed.data)
-    fromOs = raw !== null && raw.trim().length > 0 ? raw : null
+    fromOs = await readCachedOsSecret(parsed.data)
   } catch {
     // Читатель теста или обёртка модуля бросили исключение. Берём .env и молчим.
     fromOs = null

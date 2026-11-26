@@ -1,7 +1,7 @@
 /**
  * FILE: apps/server/src/llm/turn.ts
  * НАЗНАЧЕНИЕ: один ход своего бота — чат в пульте или бриф по задаче.
- * ВХОД: конфиг, id бота или задача. Ключ читается по api_key_env: хранилище ОС, затем окружение.
+ * ВХОД: конфиг, id бота или задача. Ключ по api_key_env: хранилище ОС не дольше 2 с, затем окружение.
  * ВЫХОД: текст ответа. Записка пишется только из брифа и только если она проходит statusSchema.
  * Задача из записки не становится done, мерж не стартует, lead и assignee не меняются.
  * Пробуждение — отправка брифа. Счётчик на диске, четвёртый ход при лимите 3 до модели не доходит.
@@ -147,7 +147,7 @@ async function speak(
   if (bot.paused === true) {
     return fail('paused', `Бот ${bot.name} на паузе.`, 409)
   }
-  const key = readApiKey(bot.api_key_env, deps.env)
+  const key = await readApiKey(bot.api_key_env, deps.env)
   if (!key.ok) {
     return fail('no_key', 'Ключа нет.', 422)
   }
@@ -329,7 +329,7 @@ export async function deliverBrief(input: {
       await blockTask(ready.dataDir, task.id, ready.now)
       return fail('wake_limit', 'Лимит пробуждений. Задача в блоке.', 409)
     }
-    const key = readApiKey(bot.api_key_env, deps.env)
+    const key = await readApiKey(bot.api_key_env, deps.env)
     if (!key.ok) {
       return fail('no_key', 'Ключа нет.', 422)
     }

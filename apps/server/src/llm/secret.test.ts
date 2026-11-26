@@ -9,14 +9,23 @@ import http from 'node:http'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { stringify } from 'yaml'
+import { platform } from 'node:os'
 import { afterEach, expect, test } from 'vitest'
 import { API_KEY_ENV_PATTERN } from '@tinybots/schema'
 import { BIND_HOST } from '../bind.js'
 import { logSafe } from '../redact.js'
 import { repoRoot } from '../root.js'
 import { startServer, type RunningServer } from '../server.js'
-import { readOsSecret, resetOsKeyringCache, type OsKeyring } from './os-secret.js'
-import { apiKeyNameSchema, readApiKey, useOsSecretReader } from './secret.js'
+import {
+  OS_SECRET_TIMEOUT_MS,
+  childReadSource,
+  loadOsKeyring,
+  osEntrySpec,
+  resetOsKeyringCache,
+  resetOsSecretCache,
+  useOsSecretReader,
+} from './os-secret.js'
+import { apiKeyNameSchema, readApiKey } from './secret.js'
 
 const NAME = 'DEEPSEEK_API_KEY'
 const FROM_STORE = 'os-store-canary-value'
@@ -26,6 +35,7 @@ const dirs: string[] = []
 
 afterEach(() => {
   useOsSecretReader(null)
+  resetOsSecretCache()
   resetOsKeyringCache()
   delete process.env[NAME]
   for (const dir of dirs.splice(0)) {
@@ -64,59 +74,42 @@ function capture(): { text: () => string; stop: () => void } {
   }
 }
 
-function keyring(getPassword: () => string | null, failCtor = false): OsKeyring {
-  return {
-    Entry: class {
-      constructor() {
-        if (failCtor) {
-          throw new Error(`хранилище ${FROM_STORE}`)
-        }
-      }
-      getPassword(): string | null {
-        return getPassword()
-      }
-    },
-  }
-}
-
-test('имя ключа — zod, только A–Z, цифры и _ с суффиксом _API_KEY', () => {
+test('имя ключа — zod, только A–Z, цифры и _ с суффиксом _API_KEY', async () => {
   expect(apiKeyNameSchema.safeParse(NAME).success).toBe(true)
   expect(apiKeyNameSchema.safeParse('A1_API_KEY').success).toBe(true)
   expect(API_KEY_ENV_PATTERN.test(NAME)).toBe(true)
   for (const bad of ['GITHUB_TOKEN', 'PATH', 'deepseek_api_key', 'DEEPSEEK-API-KEY', '1API_KEY', '', 'DEEPSEEK_API_KEY ']) {
     expect(apiKeyNameSchema.safeParse(bad).success, bad).toBe(false)
-    expect(readApiKey(bad, { [NAME]: FROM_ENV }).ok).toBe(false)
+    expect((await readApiKey(bad, { [NAME]: FROM_ENV })).ok).toBe(false)
   }
 })
 
-test('хранилище важнее .env, пустая запись падает в окружение', () => {
-  useOsSecretReader(() => FROM_STORE)
-  const picked = readApiKey(NAME, { [NAME]: FROM_ENV })
-  expect(picked).toEqual({ ok: true, value: FROM_STORE })
+test('хранилище важнее .env, ответ кэшируется и повторно связку не спрашивает', async () => {
+  let calls = 0
+  useOsSecretReader(() => {
+    calls += 1
+    return FROM_STORE
+  })
+  expect(await readApiKey(NAME, { [NAME]: FROM_ENV })).toEqual({ ok: true, value: FROM_STORE })
+  expect(await readApiKey(NAME, { [NAME]: FROM_ENV })).toEqual({ ok: true, value: FROM_STORE })
+  expect(calls).toBe(1)
 
   useOsSecretReader(() => '   ')
-  expect(readApiKey(NAME, { [NAME]: FROM_ENV })).toEqual({ ok: true, value: FROM_ENV })
+  expect(await readApiKey(NAME, { [NAME]: FROM_ENV })).toEqual({ ok: true, value: FROM_ENV })
 
   useOsSecretReader(() => null)
-  expect(readApiKey(NAME, {})).toEqual({ ok: false, reason: 'ключа нет' })
+  expect(await readApiKey(NAME, {})).toEqual({ ok: false, reason: 'ключа нет' })
 })
 
-test('ошибка модуля и ошибка хранилища не печатают значение и не роняют чтение', () => {
+test('ошибка модуля не печатает значение и не роняет чтение', async () => {
   const boom = 'module-boom-canary-value'
   const envOnly = 'env-only-canary-value'
   const logs = capture()
   try {
-    expect(readOsSecret(NAME, () => {
+    useOsSecretReader(() => {
       throw new Error(`модуль ${boom}`)
-    })).toBeNull()
-    expect(readOsSecret(NAME, () => keyring(() => {
-      throw new Error(`чтение ${boom}`)
-    }))).toBeNull()
-    expect(readOsSecret(NAME, () => keyring(() => boom, true))).toBeNull()
-    useOsSecretReader((account) => readOsSecret(account, () => {
-      throw new Error(`модуль ${boom}`)
-    }))
-    expect(readApiKey(NAME, { [NAME]: envOnly })).toEqual({ ok: true, value: envOnly })
+    })
+    expect(await readApiKey(NAME, { [NAME]: envOnly })).toEqual({ ok: true, value: envOnly })
   } finally {
     logs.stop()
   }
@@ -133,32 +126,32 @@ test('ошибка модуля и ошибка хранилища не печа
 })
 
 test('учётная запись — имя ключа, сервис tinybots, на Linux только Secret Service', () => {
-  let seen: { service: string; account: string; options: unknown } | null = null
-  const got = readOsSecret(NAME, () => ({
-    Entry: class {
-      constructor(service: string, account: string, options?: unknown) {
-        seen = { service, account, options }
-      }
-      getPassword(): string | null {
-        return FROM_STORE
-      }
-    },
-  }))
-  expect(got).toBe(FROM_STORE)
-  expect(seen).toEqual({
+  expect(osEntrySpec(NAME)).toEqual({
     service: 'tinybots',
     account: NAME,
     options: { linux: { store: 'secret-service' } },
   })
+  const source = childReadSource()
+  expect(source.includes('AsyncEntry')).toBe(true)
+  expect(source.includes('secret-service')).toBe(true)
+  expect(source.includes('tinybots')).toBe(true)
+  expect(source.includes(FROM_STORE)).toBe(false)
+  expect(source.includes('deletePassword')).toBe(false)
+  expect(source.includes('deleteCredential')).toBe(false)
 })
 
-test('чужое имя не читает хранилище', () => {
+test.runIf(platform() === 'win32')('нативный модуль хранилища загружается на Windows', () => {
+  resetOsKeyringCache()
+  expect(loadOsKeyring()).not.toBeNull()
+})
+
+test('чужое имя не читает хранилище', async () => {
   let called = false
   useOsSecretReader(() => {
     called = true
     return FROM_STORE
   })
-  expect(readApiKey('GITHUB_TOKEN', { GITHUB_TOKEN: FROM_ENV }).ok).toBe(false)
+  expect((await readApiKey('GITHUB_TOKEN', { GITHUB_TOKEN: FROM_ENV })).ok).toBe(false)
   expect(called).toBe(false)
 })
 
@@ -271,5 +264,74 @@ test('значение не попадает в ответ конфига, бо�
     })
   }
   expect(logs.text().includes(FROM_STORE)).toBe(false)
+  expect(logs.text().includes(FROM_ENV)).toBe(false)
+})
+
+test('зависшее хранилище отдаёт ключ из .env за ~2 с, соседний запрос в это время отвечает', async () => {
+  let calls = 0
+  useOsSecretReader(() => {
+    calls += 1
+    return new Promise(() => {})
+  })
+  process.env[NAME] = FROM_ENV
+  const auths: string[] = []
+  const mock = http.createServer((req, res) => {
+    auths.push(req.headers.authorization ?? '')
+    res.end(JSON.stringify({ choices: [{ message: { content: 'ок' } }] }))
+  })
+  await new Promise<void>((resolve) => {
+    mock.listen(0, '127.0.0.1', () => resolve())
+  })
+  const address = mock.address()
+  const port = address && typeof address === 'object' ? address.port : 0
+  const configPath = project(`http://127.0.0.1:${port}/v1`)
+  let server: RunningServer | undefined
+  const logs = capture()
+  try {
+    server = await startServer({ port: 0, configPath })
+    const origin = `http://${BIND_HOST}:${server.port}`
+    const launcher = await fetch(`${origin}/api/launcher`)
+    const csrf = ((await launcher.json()) as { csrf?: string }).csrf ?? ''
+    const chatInit = {
+      method: 'POST',
+      headers: {
+        Origin: origin,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrf,
+      },
+      body: JSON.stringify({ bot: 'nora', text: 'привет' }),
+    }
+    const started = Date.now()
+    const chatPromise = fetch(`${origin}/api/chat`, chatInit)
+    const sleptAt = Date.now()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(Date.now() - sleptAt).toBeLessThan(1_000)
+    const healthAt = Date.now()
+    const health = await fetch(`${origin}/health`)
+    expect(health.status).toBe(200)
+    expect(Date.now() - healthAt).toBeLessThan(1_000)
+    const chat = await chatPromise
+    const total = Date.now() - started
+    const chatText = await chat.text()
+    expect(chat.status).toBe(200)
+    expect(total).toBeGreaterThan(OS_SECRET_TIMEOUT_MS - 200)
+    expect(total).toBeLessThan(OS_SECRET_TIMEOUT_MS + 3_000)
+    expect(auths[0]).toBe(`Bearer ${FROM_ENV}`)
+    expect(chatText.includes(FROM_ENV)).toBe(false)
+    const again = Date.now()
+    const second = await fetch(`${origin}/api/chat`, chatInit)
+    const secondText = await second.text()
+    expect(second.status).toBe(200)
+    expect(Date.now() - again).toBeLessThan(1_000)
+    expect(calls).toBe(1)
+    expect(auths[1]).toBe(`Bearer ${FROM_ENV}`)
+    expect(secondText.includes(FROM_ENV)).toBe(false)
+  } finally {
+    logs.stop()
+    await server?.close()
+    await new Promise<void>((resolve, reject) => {
+      mock.close((error) => (error ? reject(error) : resolve()))
+    })
+  }
   expect(logs.text().includes(FROM_ENV)).toBe(false)
 })

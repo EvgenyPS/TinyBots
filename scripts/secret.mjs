@@ -2,7 +2,8 @@
  * FILE: scripts/secret.mjs
  * НАЗНАЧЕНИЕ: положить или проверить ключ своего бота в хранилище ОС.
  * ВХОД: `set <ИМЯ>` читает значение со stdin без эха. `check <ИМЯ>` ничего не пишет, кроме статуса.
- * ВЫХОД: для check одна из фраз «есть в хранилище», «есть в .env», «нет».
+ * ВЫХОД: для check статус без значения. Если ключ есть и в хранилище, и в .env,
+ * пишем, что файл не используется. Замена существующей записи только с --replace.
  * Удаления нет: бот и эта команда не должны уметь безвозвратно стереть ключ.
  * Сервис `tinybots`, учётная запись — имя ключа. На Linux только Secret Service.
  */
@@ -29,6 +30,9 @@ export function validateName(name) {
 
 /** Одна строка статуса. Значение сюда не подставляется. */
 export function presenceLine(inStore, inEnv) {
+  if (inStore && inEnv) {
+    return 'есть в хранилище (в .env тоже — не используется)'
+  }
   if (inStore) {
     return 'есть в хранилище'
   }
@@ -36,6 +40,40 @@ export function presenceLine(inStore, inEnv) {
     return 'есть в .env'
   }
   return 'нет'
+}
+
+/**
+ * Разбор argv после имени скрипта. Лишние позиционные аргументы не возвращаем:
+ * там может оказаться само значение, его нельзя тащить в сообщение об ошибке.
+ */
+export function parseArgs(argv) {
+  const command = argv[0]
+  const rest = argv.slice(1)
+  const replace = rest.includes('--replace')
+  const positional = rest.filter((item) => item !== '--replace')
+  return {
+    command,
+    name: positional[0],
+    replace,
+    extra: positional.length > 1,
+  }
+}
+
+/** Текст отказа или null, если команду можно выполнять. Значение ключа в текст не входит. */
+export function commandRefusal(parsed) {
+  if (parsed.extra) {
+    return 'лишний аргумент: значение читается только со stdin'
+  }
+  if (parsed.command !== 'set' && parsed.command !== 'check') {
+    return 'нужна команда set или check и имя ключа'
+  }
+  if (parsed.command === 'check' && parsed.replace) {
+    return 'у check нет --replace'
+  }
+  if (!validateName(parsed.name)) {
+    return 'имя ключа не подходит'
+  }
+  return null
 }
 
 /**
@@ -88,23 +126,58 @@ export function normalizeSecretInput(raw) {
 /**
  * Шаг скрытого ввода. Символ в буфер кладётся, наружу не отдаётся.
  * Enter и Ctrl-D заканчивают ввод, Ctrl-C прерывает, Backspace стирает.
+ * Стрелки и прочие CSI (`ESC [` … финальный байт) в значение не попадают.
+ * pending — незакрытая Esc-последовательность с прошлого куска.
  */
-export function feedHidden(buffer, chunk) {
+export function feedHidden(buffer, chunk, pending = '') {
+  const queue = [...pending, ...chunk]
   let next = buffer
-  for (const key of chunk) {
+  let index = 0
+  while (index < queue.length) {
+    const key = queue[index]
+    if (key === '\u001b') {
+      const rest = queue.slice(index)
+      if (rest.length === 1) {
+        return { buffer: next, done: false, aborted: false, pending: '\u001b' }
+      }
+      if (rest[1] !== '[') {
+        index += 1
+        continue
+      }
+      let end = 2
+      while (end < rest.length) {
+        const code = rest[end].charCodeAt(0)
+        if (code >= 0x40 && code <= 0x7e) {
+          index += end + 1
+          end = -1
+          break
+        }
+        end += 1
+        if (end > 32) {
+          index += end
+          end = -1
+          break
+        }
+      }
+      if (end !== -1) {
+        return { buffer: next, done: false, aborted: false, pending: rest.join('') }
+      }
+      continue
+    }
     if (key === '\u0003') {
-      return { buffer: next, done: true, aborted: true }
+      return { buffer: next, done: true, aborted: true, pending: '' }
     }
     if (key === '\r' || key === '\n' || key === '\u0004') {
-      return { buffer: next, done: true, aborted: false }
+      return { buffer: next, done: true, aborted: false, pending: '' }
     }
     if (key === '\u007f' || key === '\b') {
       next = next.slice(0, -1)
-      continue
+    } else {
+      next += key
     }
-    next += key
+    index += 1
   }
-  return { buffer: next, done: false, aborted: false }
+  return { buffer: next, done: false, aborted: false, pending: '' }
 }
 
 export function inspectPresence(keyring, name, env, dotenvText) {
@@ -121,14 +194,27 @@ export function inspectPresence(keyring, name, env, dotenvText) {
   return presenceLine(inStore, envHasValue(env, dotenvText, name))
 }
 
-/** Записать значение. Текст исключения наружу не возвращаем. */
-export function writeSecret(keyring, name, value) {
+/**
+ * Записать значение. Уже лежащую запись не затираем без replace:
+ * молчаливая замена стирала бы прежний ключ, а команды удаления нет.
+ * Текст исключения и старое значение наружу не возвращаем.
+ */
+export function writeSecret(keyring, name, value, replace = false) {
   try {
     const entry = new keyring.Entry(SERVICE, name, LINUX_OPTIONS)
+    let existing = null
+    try {
+      existing = entry.getPassword()
+    } catch {
+      return { ok: false, reason: 'unavailable' }
+    }
+    if (typeof existing === 'string' && existing.trim().length > 0 && !replace) {
+      return { ok: false, reason: 'exists' }
+    }
     entry.setPassword(value)
     return { ok: true }
   } catch {
-    return { ok: false }
+    return { ok: false, reason: 'unavailable' }
   }
 }
 
@@ -165,9 +251,11 @@ function readHidden() {
     stdin.resume()
     stdin.setEncoding('utf8')
     let buffer = ''
+    let pending = ''
     const onData = (chunk) => {
-      const step = feedHidden(buffer, chunk)
+      const step = feedHidden(buffer, chunk, pending)
       buffer = step.buffer
+      pending = step.pending
       if (!step.done) {
         return
       }
@@ -185,20 +273,13 @@ function readHidden() {
 }
 
 async function main() {
-  const command = process.argv[2]
-  const name = process.argv[3]
-  if (process.argv.length > 4) {
-    fail('лишний аргумент: значение читается только со stdin')
+  const parsed = parseArgs(process.argv.slice(2))
+  const refusal = commandRefusal(parsed)
+  if (refusal) {
+    fail(refusal)
     return
   }
-  if (command !== 'set' && command !== 'check') {
-    fail('нужна команда set или check и имя ключа')
-    return
-  }
-  if (!validateName(name)) {
-    fail('имя ключа не подходит')
-    return
-  }
+  const { command, name } = parsed
   if (command === 'check') {
     const keyring = await loadKeyring()
     let dotenvText = ''
@@ -219,9 +300,11 @@ async function main() {
     fail('хранилище ОС недоступно')
     return
   }
-  const saved = writeSecret(keyring, name, value)
+  const saved = writeSecret(keyring, name, value, parsed.replace)
   if (!saved.ok) {
-    fail('хранилище ОС недоступно')
+    fail(saved.reason === 'exists'
+      ? 'в хранилище уже есть запись, для замены добавьте --replace'
+      : 'хранилище ОС недоступно')
     return
   }
   console.log('записано в хранилище')
