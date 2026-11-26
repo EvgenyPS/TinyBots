@@ -1,12 +1,13 @@
 /**
  * FILE: apps/web/src/ui/setup-bots.tsx
  * НАЗНАЧЕНИЕ: шаг «Боты». Вкладки, кнопка аватара 72px, поповер 96px и сетка 6×2.
- * ВХОД: форма и правки одного бота. ВЫХОД: те же поля, что в 0.3.1, плюс avatarId/avatarColor.
+ * ВХОД: форма и правки одного бота. ВЫХОД: те же поля, плюс шаблон инструкций и id с суффиксом -bot.
  * «Дополнительно» — details: e2e читает .open и жмёт Enter на summary.
+ * Список шаблонов — поповер на странице, чтобы открытый перечень был виден и в светлой теме.
  */
 
 import { CircleHelp, Plus } from 'lucide-react'
-import type { Dispatch, KeyboardEvent, SetStateAction } from 'react'
+import { useState, type Dispatch, type KeyboardEvent, type SetStateAction } from 'react'
 import { Accordion, AccordionContent, AccordionTrigger } from '@/components/ui/accordion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -31,7 +32,8 @@ import {
   showCustomModel,
 } from './bot-presets'
 import { AVATAR_LIST, AVATAR_PALETTE, BotAvatar, avatarName, colorLabel } from './bot-avatar'
-import { emptyBot, fieldsOf, withFields, type BotForm, type Form } from './setup-model'
+import { chooseInstructionTemplate, instructionTemplateById, INSTRUCTION_TEMPLATES } from './instruction-templates'
+import { botIdFieldError, emptyBot, fieldsOf, withFields, type BotForm, type Form } from './setup-model'
 
 export function BotsStep({
   form,
@@ -43,6 +45,8 @@ export function BotsStep({
   setForm,
   updateBot,
   writeBot,
+  commitBotId,
+  idError,
 }: {
   form: Form
   tab: number
@@ -53,10 +57,45 @@ export function BotsStep({
   setForm: Dispatch<SetStateAction<Form>>
   updateBot: (botIndex: number, patch: Partial<BotForm>, touchId?: boolean) => void
   writeBot: (botIndex: number, recipe: (bot: BotForm) => BotForm) => void
+  commitBotId: (botIndex: number) => void
+  idError: string | null
 }) {
+  const [templateOpen, setTemplateOpen] = useState(false)
+  const [askTemplate, setAskTemplate] = useState<{ tab: number; id: string } | null>(null)
   const bot = form.bots[tab]
   if (!bot) {
     return null
+  }
+  const asking = askTemplate && askTemplate.tab === tab ? askTemplate.id : null
+  const askingTitle = asking ? instructionTemplateById(asking)?.title : undefined
+  const idMessage = botIdFieldError(form.bots, tab)
+  const showIdMessage = idError !== null && idMessage !== null && idError === idMessage
+
+  function pickTemplate(nextId: string) {
+    setTemplateOpen(false)
+    const choice = chooseInstructionTemplate({
+      nextId,
+      currentText: bot.instructions,
+      touched: bot.instructionsTouched,
+    })
+    if (choice.kind === 'ask') {
+      setAskTemplate({ tab, id: choice.templateId })
+      return
+    }
+    setAskTemplate(null)
+    if (choice.kind === 'apply') {
+      updateBot(tab, { instructionTemplate: choice.templateId, instructions: choice.text, instructionsTouched: false })
+      return
+    }
+    updateBot(tab, { instructionTemplate: choice.templateId })
+  }
+
+  function replaceInstructions() {
+    if (!asking) return
+    const choice = chooseInstructionTemplate({ nextId: asking, currentText: '', touched: false })
+    if (choice.kind !== 'apply') return
+    updateBot(tab, { instructionTemplate: choice.templateId, instructions: choice.text, instructionsTouched: false })
+    setAskTemplate(null)
   }
 
   function pickAvatar(id: string) {
@@ -100,7 +139,7 @@ export function BotsStep({
   return (
     <div className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Tabs value={String(tab)} onValueChange={(value) => { setTab(Number(value)); setAvatarOpen(false) }}>
+        <Tabs value={String(tab)} onValueChange={(value) => { setTab(Number(value)); setAvatarOpen(false); setTemplateOpen(false) }}>
           <TabsList>
             {form.bots.map((item, botIndex) => (
               <TabsTrigger key={botIndex} value={String(botIndex)}>
@@ -217,8 +256,37 @@ export function BotsStep({
             ) : null}
             <div className="wz-pair">
               <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`bot-template-${tab}`}>Шаблон</Label>
+                <Popover open={templateOpen} onOpenChange={setTemplateOpen} modal={false}>
+                  <PopoverTrigger asChild>
+                    <button type="button" id={`bot-template-${tab}`} data-testid={`bot-template-${tab}`} className="wz-select flex h-9 w-full items-center rounded-md border border-input bg-card px-3 text-left text-sm font-normal text-foreground shadow-[var(--wz-shadow)]" aria-haspopup="listbox" aria-expanded={templateOpen}>
+                      {instructionTemplateById(bot.instructionTemplate)?.title ?? 'Своя'}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent container={layer} side="bottom" avoidCollisions={false} data-testid={`bot-template-list-${tab}`} className="w-[var(--radix-popover-trigger-width)] p-1" onOpenAutoFocus={(event) => event.preventDefault()}>
+                    <div role="listbox" aria-label="Шаблон инструкций" className="flex flex-col">
+                      {INSTRUCTION_TEMPLATES.map((item) => {
+                        const on = bot.instructionTemplate === item.id
+                        return (
+                          <button key={item.id} type="button" role="option" aria-selected={on} data-testid={`bot-template-option-${item.id}`} className={on ? 'w-full cursor-pointer rounded-md border-0 bg-accent px-2.5 py-1.5 text-left text-sm font-semibold' : 'w-full cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-sm hover:bg-accent'} onClick={() => pickTemplate(item.id)}>
+                            {item.title}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                {asking ? (
+                  <div role="alertdialog" aria-labelledby={`bot-template-ask-${tab}`} data-testid={`bot-template-confirm-${tab}`} className="rounded-lg border border-border bg-accent/60 px-3 py-2.5">
+                    <p id={`bot-template-ask-${tab}`} className="text-[13px]">В поле уже ваш текст. Заменить его шаблоном «{askingTitle}»?</p>
+                    <div className="mt-2 flex gap-2">
+                      <Button size="sm" data-testid={`bot-template-replace-${tab}`} onClick={replaceInstructions}>Заменить</Button>
+                      <Button size="sm" variant="outline" data-testid={`bot-template-keep-${tab}`} onClick={() => setAskTemplate(null)}>Оставить</Button>
+                    </div>
+                  </div>
+                ) : null}
                 <Label htmlFor={`bot-instructions-${tab}`}>Инструкции</Label>
-                <Textarea id={`bot-instructions-${tab}`} data-testid={`bot-instructions-${tab}`} value={bot.instructions} onChange={(event) => updateBot(tab, { instructions: event.target.value })} />
+                <Textarea id={`bot-instructions-${tab}`} data-testid={`bot-instructions-${tab}`} value={bot.instructions} onChange={(event) => updateBot(tab, { instructions: event.target.value, instructionsTouched: true })} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor={`bot-tools-${tab}`}>Доступ к папке проекта</Label>
@@ -242,8 +310,9 @@ export function BotsStep({
           <AccordionContent>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor={`bot-id-${tab}`}>Id</Label>
-              <Input id={`bot-id-${tab}`} className="wz-mono" data-testid={`bot-id-${tab}`} value={bot.id} autoComplete="off" onChange={(event) => updateBot(tab, { id: event.target.value }, true)} />
-              <p className="text-xs text-muted-foreground">Короткое имя латиницей. Пока не поправите, собирается из имени.</p>
+              <Input id={`bot-id-${tab}`} className="wz-mono" data-testid={`bot-id-${tab}`} value={bot.id} autoComplete="off" onChange={(event) => updateBot(tab, { id: event.target.value }, true)} onBlur={() => { if (bot.idTouched) commitBotId(tab) }} />
+              {showIdMessage ? <p className="text-xs font-semibold text-[#9f1239] dark:text-[#fecdd3]" data-testid={`bot-id-error-${tab}`} role="alert">{idMessage}</p> : null}
+              <p className="text-xs text-muted-foreground">Короткое имя латиницей, в конце -bot. Пока не поправите, собирается из имени.</p>
             </div>
             {bot.api ? (
               <>
