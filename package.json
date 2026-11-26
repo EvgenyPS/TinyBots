@@ -1,6 +1,6 @@
 {
   "name": "tinybots",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Локальный пульт над ботами: брифы и статусы на машине пользователя",
   "type": "module",
@@ -22,6 +22,8 @@
     "check:license": "node scripts/check-license.mjs",
     "check:forbidden": "node scripts/check-forbidden.mjs",
     "gitleaks": "node scripts/run-gitleaks.mjs",
+    "secret:set": "node scripts/secret.mjs set",
+    "secret:check": "node scripts/secret.mjs check",
     "prepare": "node scripts/install-hooks.mjs"
   },
   "repository": {
