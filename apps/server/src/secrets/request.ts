@@ -15,7 +15,7 @@ import { isIP } from 'node:net'
 import path from 'node:path'
 import { knownSecrets, rememberSecret } from '../redact.js'
 import { readCachedOsSecret } from '../llm/os-secret.js'
-import { SECRET_MASK_MIN, maskClosedChannel, maskParts } from './mask.js'
+import { SECRET_MASK_MIN, maskClosedChannel } from './mask.js'
 import { readSecretFile, type SecretFile } from './meta.js'
 import { checkPlacement, gateUrl, privateAddress, substituteOnce } from './policy.js'
 
@@ -367,6 +367,7 @@ export async function runHttpRequest(input: {
   if (result.tooBig) {
     return toolError('ответ больше лимита')
   }
-  const text = visible(maskParts([result.headers, result.body], secretValues).join(''), secretValues)
+  // Перевод строки не даёт base64 тела прилипнуть к заголовку и сдвинуть квант.
+  const text = visible(maskClosedChannel(`${result.headers}\n${result.body}`, secretValues), secretValues)
   return JSON.stringify({ ok: true, status: result.status, text })
 }

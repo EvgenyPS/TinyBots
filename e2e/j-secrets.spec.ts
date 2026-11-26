@@ -220,6 +220,14 @@ test('значение не возвращается, ссылка в URL и т�
     expect(bodies.some((item) => item.includes(VALUE))).toBe(false)
     expect(bodies.some((item) => item.includes(VALUE.replaceAll('/', '\\/')))).toBe(false)
     expect(bodies.some((item) => item.includes(lowerUrl))).toBe(false)
+
+    const basic = Buffer.from(`user:${VALUE}`).toString('base64')
+    dialBody = `Authorization: Basic ${basic}`
+    const basicReply = await ask('BASIC')
+    expect(basicReply.includes(VALUE)).toBe(false)
+    expect(basicReply.includes(basic)).toBe(false)
+    expect(bodies.some((item) => item.includes(VALUE))).toBe(false)
+    expect(bodies.some((item) => item.includes(basic))).toBe(false)
   } finally {
     await server.close()
     await new Promise<void>((resolve) => mock.close(() => resolve()))

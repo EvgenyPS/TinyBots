@@ -167,6 +167,63 @@ test('маска закрывает кодировки, куски от 8 сим
   expect(maskClosedChannel('обычный ответ сервера', [sample])).toBe('обычный ответ сервера')
 })
 
+test('маска закрывает Basic, сдвиг, MIME, JSON-base64, hex с префиксом и двойной percent', () => {
+  const sample = 'abcd/efgh+ijkl/mnop+qrstuvwx'
+  const encoded = Buffer.from(sample).toString('base64')
+  const basic = Buffer.from(`user:${sample}`).toString('base64')
+  const mime = Buffer.from(sample.repeat(3)).toString('base64').replace(/(.{76})/gu, '$1\r\n')
+  const packed = Buffer.from(JSON.stringify({ token: sample })).toString('base64')
+  const forms = [
+    `Authorization: Basic ${basic}`,
+    `x ${encoded}`,
+    `abc${encoded}`,
+    `text/plain${encoded}`,
+    mime,
+    packed,
+  ]
+  for (const form of forms) {
+    const masked = maskClosedChannel(form, [sample])
+    expect(masked.includes(sample), form.slice(0, 24)).toBe(false)
+    expect(masked.includes(encoded), form.slice(0, 24)).toBe(false)
+    expect(masked.includes(basic), form.slice(0, 24)).toBe(false)
+  }
+  const hex = Buffer.from(sample).toString('hex')
+  const lower = maskClosedChannel(`a${hex}`, [sample])
+  expect(lower.includes(hex)).toBe(false)
+  expect(lower.includes(sample)).toBe(false)
+  const upper = hex.toUpperCase()
+  const prefixed = maskClosedChannel(`deadbeefc${upper}`, [sample])
+  expect(prefixed.includes(upper)).toBe(false)
+  expect(prefixed.includes(sample)).toBe(false)
+  const twice = encodeURIComponent(encodeURIComponent(sample))
+  const unfolded = maskClosedChannel(`до ${twice} после`, [sample])
+  expect(unfolded.includes(sample)).toBe(false)
+  expect(unfolded.includes('%252F')).toBe(false)
+  expect(unfolded.includes('%252f')).toBe(false)
+})
+
+test('http_request не склеивает text/plain с base64 тела', async () => {
+  const dir = box()
+  memory(new Map([[NAME, VALUE]]))
+  await card(dir, false)
+  const encoded = Buffer.from(VALUE).toString('base64')
+  useSecretTransport({
+    lookup: async () => ['1.1.1.1'],
+    dial: async () => ({
+      status: 200,
+      headers: 'content-type: text/plain',
+      body: encoded,
+    }),
+  })
+  const reply = await runHttpRequest({
+    dataDir: dir,
+    botId: 'nora',
+    argsText: call('https://example.com/v1', { headers: { Authorization: `Bearer {{secret:${NAME}}}` } }),
+  })
+  expect(reply.includes(VALUE)).toBe(false)
+  expect(reply.includes(encoded)).toBe(false)
+})
+
 test('http_request: url, тело без флага, чужой бот и неизвестное имя', async () => {
   const dir = box()
   const store = new Map<string, string>([[NAME, VALUE]])

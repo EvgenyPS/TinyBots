@@ -4,8 +4,9 @@
  * ВХОД: текст и сами значения. Короче 8 символов не трогаем: иначе «ok» съело бы обычные слова.
  * ВЫХОД: текст без значения и его кодировок, либо фраза «ответ похож на ключ», если кусок
  * виден только после склейки и его нельзя вырезать, не оставив хвост.
- * Перед сравнением снимаем JSON-экранирование, percent-encoding без учёта регистра
- * и пробелы с переводами строк внутри base64. Маскируется любой непрерывный кусок от 8 символов.
+ * Перед сравнением снимаем JSON-экранирование и percent-encoding до трёх раз.
+ * Пробел рвёт base64-серию. Серию и hex читаем со сдвигом, MIME-перенос склеиваем отдельно.
+ * Маскируется любой непрерывный кусок от 8 символов.
  */
 
 /** Короче этого порога значение не маскируется. Тот же порог, что у журнала и приёма ключа. */
@@ -226,10 +227,10 @@ function mappedSpans(view: View, keys: readonly string[]): Span[] {
 }
 
 function isBase64Char(char: string): boolean {
-  return /[A-Za-z0-9+/_-]/u.test(char)
+  return /[A-Za-z0-9+/_=-]/u.test(char)
 }
 
-function isSpace(char: string): boolean {
+function isGap(char: string): boolean {
   return char === ' ' || char === '\t' || char === '\n' || char === '\r'
 }
 
@@ -237,34 +238,80 @@ function decodedHasKey(decoded: string, keys: readonly string[]): boolean {
   return keys.some((key) => chunkSpans(decoded, key).length > 0)
 }
 
+/** Сдвиг 0..3: префикс вроде abc или Basic не должен сбивать квант base64. */
+function shiftsHit(raw: string, keys: readonly string[]): boolean {
+  for (let shift = 0; shift < 4; shift += 1) {
+    const cleaned = raw.slice(shift).replace(/-/gu, '+').replace(/_/gu, '/').replace(/[^A-Za-z0-9+/]/gu, '')
+    if (cleaned.length < 12) {
+      continue
+    }
+    const padded = cleaned + '='.repeat((4 - (cleaned.length % 4)) % 4)
+    const decoded = Buffer.from(padded, 'base64').toString('utf8')
+    if (decodedHasKey(decoded, keys)) {
+      return true
+    }
+  }
+  return false
+}
+
+function gapOnly(text: string, from: number, to: number): boolean {
+  if (from >= to) {
+    return false
+  }
+  for (let index = from; index < to; index += 1) {
+    if (!isGap(text[index] ?? '')) {
+      return false
+    }
+  }
+  return true
+}
+
+function hasBreak(text: string, from: number, to: number): boolean {
+  const gap = text.slice(from, to)
+  return gap.includes('\n') || gap.includes('\r')
+}
+
 function base64Spans(text: string, keys: readonly string[]): Span[] {
   const spans: Span[] = []
+  const runs: Span[] = []
   let index = 0
   while (index < text.length) {
     if (!isBase64Char(text[index] ?? '')) {
       index += 1
       continue
     }
-    let end = index
-    let alphabet = 0
-    while (end < text.length && (isBase64Char(text[end] ?? '') || isSpace(text[end] ?? ''))) {
-      if (isBase64Char(text[end] ?? '')) {
-        alphabet += 1
+    const start = index
+    while (index < text.length && isBase64Char(text[index] ?? '')) {
+      index += 1
+    }
+    const run = text.slice(start, index)
+    runs.push({ start, end: index })
+    if (shiftsHit(run, keys)) {
+      spans.push({ start, end: index })
+    }
+  }
+  let cursor = 0
+  while (cursor < runs.length) {
+    let last = cursor
+    while (last + 1 < runs.length) {
+      const left = runs[last]
+      const right = runs[last + 1]
+      if (!left || !right || !gapOnly(text, left.end, right.start) || !hasBreak(text, left.end, right.start)) {
+        break
       }
-      end += 1
+      last += 1
     }
-    while (end > index && isSpace(text[end - 1] ?? '')) {
-      end -= 1
-    }
-    if (alphabet >= 12) {
-      const raw = text.slice(index, end).replace(/\s+/gu, '').replace(/-/gu, '+').replace(/_/gu, '/')
-      const padded = raw + '='.repeat((4 - (raw.length % 4)) % 4)
-      const decoded = Buffer.from(padded, 'base64').toString('utf8')
-      if (decodedHasKey(decoded, keys)) {
-        spans.push({ start: index, end })
+    if (last > cursor) {
+      const head = runs[cursor]
+      const tail = runs[last]
+      if (head && tail) {
+        const joined = runs.slice(cursor, last + 1).map((run) => text.slice(run.start, run.end)).join('')
+        if (shiftsHit(joined, keys)) {
+          spans.push({ start: head.start, end: tail.end })
+        }
       }
     }
-    index = Math.max(end, index + 1)
+    cursor = last + 1
   }
   return spans
 }
@@ -273,26 +320,48 @@ function hexSpans(text: string, keys: readonly string[]): Span[] {
   const spans: Span[] = []
   for (const match of text.matchAll(/[0-9a-fA-F]{16,}/gu)) {
     const raw = match[0]
-    const even = raw.length % 2 === 0 ? raw : raw.slice(0, -1)
-    if (even.length < 16 || match.index === undefined) {
+    if (match.index === undefined) {
       continue
     }
-    const decoded = Buffer.from(even, 'hex').toString('utf8')
-    if (decodedHasKey(decoded, keys)) {
-      spans.push({ start: match.index, end: match.index + even.length })
+    for (const offset of [0, 1]) {
+      const slice = raw.slice(offset)
+      const even = slice.length % 2 === 0 ? slice : slice.slice(0, -1)
+      if (even.length < 16) {
+        continue
+      }
+      const decoded = Buffer.from(even, 'hex').toString('utf8')
+      if (decodedHasKey(decoded, keys)) {
+        spans.push({ start: match.index + offset, end: match.index + offset + even.length })
+      }
     }
   }
   return spans
 }
 
+/** До трёх проходов: %252F сначала становится %2F, затем слэшем. */
+function unfoldPercent(outer: View): View {
+  let view = outer
+  for (let step = 0; step < 3; step += 1) {
+    const next = percentDecode(view.text)
+    if (next.text === view.text) {
+      return view
+    }
+    view = compose(view, next)
+    if (!viewOk(view)) {
+      return view
+    }
+  }
+  return view
+}
+
 function views(text: string): View[] {
   const json = jsonUnescape(text)
-  const percent = percentDecode(text)
+  const percent = unfoldPercent(identity(text))
   return [
     identity(text),
     json,
     percent,
-    compose(json, percentDecode(json.text)),
+    unfoldPercent(json),
     compose(percent, jsonUnescape(percent.text)),
   ]
 }
