@@ -10,8 +10,9 @@
  * На Linux только Secret Service. keyutils не используем: оно не переживает перезагрузку.
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { minimalChildEnv } from '../proc-env.js'
 import { repoRoot } from '../root.js'
 
 /** Сервис в Credential Manager, Keychain и Secret Service. */
@@ -65,7 +66,9 @@ export function osEntrySpec(name: string): {
 
 /**
  * Текст дочернего процесса. Имени ключа в нём нет: имя приходит аргументом.
- * Значение пишется только в stdout, ошибки глотаются.
+ * Режим — второй аргумент: read, check или write. Значение write читается из stdin, не из argv.
+ * check пишет только 1 или 0. Удаления связки здесь нет.
+ * Окружение процесса собирается отдельно и остаётся узким (Н102).
  */
 export function childReadSource(): string {
   const service = JSON.stringify(OS_SECRET_SERVICE)
@@ -73,6 +76,8 @@ export function childReadSource(): string {
   return [
     "import { AsyncEntry } from '@napi-rs/keyring'",
     'const name = process.argv[1]',
+    'const mode = process.argv[2] || "read"',
+    'const replace = process.argv[3] === "replace"',
     'if (typeof name !== "string" || name.length === 0) process.exit(2)',
     'let entry',
     'try {',
@@ -80,14 +85,63 @@ export function childReadSource(): string {
     '} catch {',
     '  process.exit(2)',
     '}',
-    'try {',
-    '  const value = await entry.getPassword()',
-    '  if (typeof value === "string" && value.length > 0) process.stdout.write(value)',
-    '} catch {',
+    'const filled = (value) => typeof value === "string" && value.trim().length > 0',
+    'if (mode === "check") {',
+    '  try {',
+    '    const value = await entry.getPassword()',
+    '    process.stdout.write(filled(value) ? "1" : "0")',
+    '  } catch {',
+    '    process.exit(2)',
+    '  }',
+    '} else if (mode === "write") {',
+    '  const chunks = []',
+    '  for await (const chunk of process.stdin) chunks.push(chunk)',
+    '  const value = Buffer.concat(chunks).toString("utf8").replace(/\\r?\\n$/, "")',
+    '  if (!filled(value)) process.exit(2)',
+    '  try {',
+    '    const existing = await entry.getPassword()',
+    '    if (filled(existing) && !replace) process.exit(3)',
+    '    await entry.setPassword(value)',
+    '    process.stdout.write("ok")',
+    '  } catch {',
+    '    process.exit(2)',
+    '  }',
+    '} else if (mode === "read") {',
+    '  try {',
+    '    const value = await entry.getPassword()',
+    '    if (typeof value === "string" && value.length > 0) process.stdout.write(value)',
+    '  } catch {',
+    '    process.exit(2)',
+    '  }',
+    '} else {',
     '  process.exit(2)',
     '}',
     '',
   ].join('\n')
+}
+
+/** Н102: дочернему процессу хранилища не отдаём окружение пульта. */
+export function osChildEnv(): NodeJS.ProcessEnv {
+  return minimalChildEnv()
+}
+
+type SpawnLike = (
+  command: string,
+  args: readonly string[],
+  options: {
+    cwd?: string
+    env?: NodeJS.ProcessEnv
+    stdio?: ['ignore' | 'pipe', 'pipe', 'ignore']
+    windowsHide?: boolean
+    shell?: boolean
+  },
+) => ChildProcess
+
+let spawnImpl: SpawnLike = spawn as SpawnLike
+
+/** Подмена процесса в тесте. null возвращает node:child_process. */
+export function useOsSpawner(next: SpawnLike | null): void {
+  spawnImpl = next ?? (spawn as SpawnLike)
 }
 
 function filled(value: string | null): string | null {
@@ -107,8 +161,9 @@ export function readOsSecret(name: string, signal: AbortSignal): Promise<string 
       resolve(null)
       return
     }
-    const child = spawn(process.execPath, ['--input-type=module', '-e', childReadSource(), '--', name], {
+    const child = spawnImpl(process.execPath, ['--input-type=module', '-e', childReadSource(), '--', name, 'read'], {
       cwd: repoRoot(),
+      env: osChildEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
       shell: false,
@@ -157,6 +212,132 @@ export function readOsSecret(name: string, signal: AbortSignal): Promise<string 
       finish(filled(value))
     })
   })
+}
+
+type ChildResult = { code: number; stdout: string }
+
+function runChild(mode: 'check' | 'write', name: string, signal: AbortSignal, stdin?: string, replace = false): Promise<ChildResult> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve({ code: 2, stdout: '' })
+      return
+    }
+    const args = ['--input-type=module', '-e', childReadSource(), '--', name, mode]
+    if (mode === 'write' && replace) {
+      args.push('replace')
+    }
+    const child = spawnImpl(process.execPath, args, {
+      cwd: repoRoot(),
+      env: osChildEnv(),
+      stdio: [mode === 'write' ? 'pipe' : 'ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+      shell: false,
+    })
+    const chunks: Buffer[] = []
+    let settled = false
+    const finish = (code: number) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      signal.removeEventListener('abort', onAbort)
+      const stdout = Buffer.concat(chunks).toString('utf8')
+      chunks.length = 0
+      resolve({ code, stdout })
+    }
+    const onAbort = () => {
+      chunks.length = 0
+      child.kill('SIGKILL')
+      finish(2)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    child.stdout?.on('data', (chunk: Buffer) => {
+      if (chunks.reduce((sum, item) => sum + item.length, 0) + chunk.length > 16) {
+        chunks.length = 0
+        child.kill('SIGKILL')
+        return
+      }
+      chunks.push(chunk)
+    })
+    child.on('error', () => finish(2))
+    child.on('close', (code) => finish(typeof code === 'number' ? code : 2))
+    if (mode === 'write' && stdin !== undefined) {
+      child.stdin?.write(stdin)
+      child.stdin?.end()
+    }
+  })
+}
+
+async function childWithTimeout(mode: 'check' | 'write', name: string, stdin?: string, replace = false): Promise<ChildResult> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), OS_SECRET_TIMEOUT_MS)
+  try {
+    return await runChild(mode, name, controller.signal, stdin, replace)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export type OsSecretWriter = (name: string, value: string, replace: boolean) => Promise<'ok' | 'exists' | 'unavailable'> | 'ok' | 'exists' | 'unavailable'
+
+let osWriter: OsSecretWriter | null = null
+
+/** Подмена записи в тесте. null возвращает дочерний процесс. */
+export function useOsSecretWriter(writer: OsSecretWriter | null): void {
+  osWriter = writer
+}
+
+/**
+ * Есть ли непустое значение. Наружу уходит только да/нет: сама строка остаётся в дочернем процессе.
+ */
+export async function osSecretIsSet(name: string): Promise<boolean> {
+  if (osReader !== readOsSecret) {
+    try {
+      const controller = new AbortController()
+      const value = await osReader(name, controller.signal)
+      return typeof value === 'string' && value.trim().length > 0
+    } catch {
+      return false
+    }
+  }
+  const result = await childWithTimeout('check', name)
+  return result.code === 0 && result.stdout === '1'
+}
+
+/**
+ * Записать значение. replace=false и уже лежащая запись — отказ до setPassword в дочернем процессе.
+ * В process.env значение не кладётся.
+ */
+export async function writeOsSecret(name: string, value: string, replace: boolean): Promise<'ok' | 'exists' | 'unavailable'> {
+  if (value.trim().length === 0) {
+    return 'unavailable'
+  }
+  if (osWriter) {
+    try {
+      const saved = await osWriter(name, value, replace)
+      if (saved === 'ok') {
+        cache.delete(name)
+      }
+      return saved
+    } catch {
+      return 'unavailable'
+    }
+  }
+  if (!replace) {
+    const exists = await osSecretIsSet(name)
+    if (exists) {
+      return 'exists'
+    }
+  }
+  const result = await childWithTimeout('write', name, value, replace)
+  if (result.code === 0 && result.stdout === 'ok') {
+    cache.delete(name)
+    return 'ok'
+  }
+  if (result.code === 3) {
+    return 'exists'
+  }
+  return 'unavailable'
 }
 
 export type OsSecretReader = (name: string, signal: AbortSignal) => Promise<string | null> | string | null

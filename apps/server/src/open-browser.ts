@@ -5,9 +5,10 @@
  * TINYBOTS_NO_BROWSER=1 отключает вызов (удобно в проверках).
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, type SpawnOptions } from 'node:child_process'
+import { minimalChildEnv } from './proc-env.js'
 
-export function openBrowser(url: string): void {
+export function openBrowser(url: string, spawnFn: typeof spawn = spawn): void {
   if (process.env.TINYBOTS_NO_BROWSER === '1') {
     return
   }
@@ -19,11 +20,12 @@ export function openBrowser(url: string): void {
         ? { cmd: 'open', args: [url] }
         : { cmd: 'xdg-open', args: [url] }
 
-  const child = spawn(command.cmd, command.args, {
+  const child = spawnFn(command.cmd, command.args, {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
-  })
+    env: minimalChildEnv(),
+  } satisfies SpawnOptions)
   child.on('error', () => {
     // Утилиты может не быть (сервер без рабочего стола). Страница доступна по URL.
   })

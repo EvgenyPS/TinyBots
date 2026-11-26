@@ -6,6 +6,8 @@
  * Короткое значение не прячем: иначе «6» или «ok» выедали бы обычные слова.
  */
 
+import { maskClosedChannel } from './secrets/mask.js'
+
 const secrets = new Set<string>()
 
 export function rememberSecret(value: string | undefined): void {
@@ -15,15 +17,18 @@ export function rememberSecret(value: string | undefined): void {
   secrets.add(value)
 }
 
+/** Значения, которые уже видел этот процесс. В окружение детей их не кладём. */
+export function knownSecrets(): string[] {
+  return [...secrets]
+}
+
+/** Только для тестов: процесс не должен тащить канарейку в следующий файл. */
+export function forgetSecrets(): void {
+  secrets.clear()
+}
+
 export function redact(text: string): string {
-  let out = text
-  for (const secret of secrets) {
-    if (secret.length < 8 || !out.includes(secret)) {
-      continue
-    }
-    out = out.split(secret).join('[secret]')
-  }
-  return out
+  return maskClosedChannel(text, knownSecrets())
 }
 
 export function logSafe(message: string): void {

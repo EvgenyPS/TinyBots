@@ -230,7 +230,15 @@ export function noteBytes(dataDir: string, botId: string): string | null {
 }
 
 export async function writeNote(dataDir: string, botId: string, note: StatusReport): Promise<boolean> {
-  const parsed = statusSchema.safeParse(note)
+  const scrubbed: StatusReport = {
+    ...note,
+    links: note.links.map((item) => redact(item)),
+    verified: redact(note.verified),
+    not_done: redact(note.not_done),
+    question_to_owner: redact(note.question_to_owner),
+    ...(note.risks ? { risks: redact(note.risks) } : {}),
+  }
+  const parsed = statusSchema.safeParse(scrubbed)
   if (!parsed.success) {
     return false
   }

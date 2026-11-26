@@ -16,6 +16,8 @@ import { completeChat, type LlmResult } from './client.js'
 import { openTools } from '../tools/access.js'
 import { runToolLoop } from '../tools/loop.js'
 import { redact } from '../redact.js'
+import { listBotSecrets } from '../secrets/meta.js'
+import { httpToolDefinition, runHttpRequest } from '../secrets/request.js'
 import { briefUserText, rulesBaseText, systemPrompt } from './prompt.js'
 import { readApiKey } from './secret.js'
 import type { Resolver } from './ssrf.js'
@@ -161,12 +163,25 @@ async function speak(
   } catch {
     return fail('rules', 'Базовые правила не прочитались.', 422)
   }
+  const visible = scope ? listBotSecrets(scope.dataDir, bot.id) : []
   const system = systemPrompt({
     role: bot.role,
     instructions: bot.instructions,
     rulesBase: rules,
     replyLimit,
+    secrets: visible,
   })
+  const channel = scope && visible.length > 0
+    ? {
+      definition: httpToolDefinition(visible),
+      run: (args: string, signal: AbortSignal) => runHttpRequest({
+        dataDir: scope.dataDir,
+        botId: bot.id,
+        argsText: args,
+        signal,
+      }),
+    }
+    : null
   const gate = scope
     ? await openTools({
       root,
@@ -183,7 +198,7 @@ async function speak(
   if (gate && gate.ok === false) {
     return fail('tools', gate.message, 422)
   }
-  if (!gate) {
+  if (!gate && !channel) {
     return completeChat({
       baseUrl: bot.base_url,
       apiKey: key.value,
@@ -202,8 +217,9 @@ async function speak(
     model: bot.model,
     system,
     user,
-    ctx: gate.ctx,
-    offerPropose: gate.offerPropose,
+    ctx: gate && gate.ok ? gate.ctx : undefined,
+    offerPropose: gate && gate.ok ? gate.offerPropose : false,
+    channel: channel ?? undefined,
     fetchImpl: deps.fetchImpl,
     lookup: deps.lookup,
     sleep: deps.sleep,
@@ -246,7 +262,7 @@ export async function deliverChat(input: {
     const spoken = await speak(
       input.root,
       bot,
-      input.text,
+      redact(input.text),
       replyOf(ready.config, input.projectId, input.chatId),
       deps,
       {
@@ -343,10 +359,11 @@ export async function deliverBrief(input: {
       return fail('rules', 'Базовые правила не прочитались.', 422)
     }
     await writeWakeCount(ready.dataDir, task.id, count + 1, ready.now)
+    const briefText = redact(composed.text)
     const spoken = await speak(
       input.root,
       bot,
-      briefUserText(composed.text),
+      briefUserText(briefText),
       task.reply_limit,
       deps,
       {
@@ -367,7 +384,7 @@ export async function deliverBrief(input: {
     const previous = readChat(ready.dataDir, bot.id)
     await writeChat(ready.dataDir, bot.id, [
       ...previous.messages,
-      { role: 'user', text: composed.text, at },
+      { role: 'user', text: briefText, at },
       { role: 'assistant', text: reply, at },
     ], ready.now)
     await addUsage(ready.dataDir, bot.api_key_env, spoken.usage, ready.now)
@@ -376,7 +393,7 @@ export async function deliverBrief(input: {
     return {
       ok: true,
       reply,
-      text: composed.text,
+      text: briefText,
       recipient: composed.recipient,
       channel: 'api',
       usage_label: usageLabel(ready.dataDir, bot.api_key_env) ?? 'нет данных',

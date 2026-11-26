@@ -27,8 +27,30 @@
 ## Синк бокс ↔ ПК (меньше одобрений)
 По одному бандлу в каждую сторону: `box-to-pc.tgz` (tasks, status, merge_requests) и `pc-to-box.tgz` (outbox) с `sync_manifest.json` (path, sha256, updated_at). Это 2 операции на ПК вместо N. Распаковку делает лаунчер/скрипт, не перезаписывая файлы чужого писателя.
 
+## Закрытый канал ключей (0.3.0)
+Метаданные лежат в `data_dir/secrets/keys/<NAME>.json`. Значения в файле нет: оно только в хранилище ОС, сервис `tinybots`, учётная запись — `NAME`. Журнал вызовов — `data_dir/secrets/journal.jsonl` (имя, хост, метод, статус; значения нет).
+
+`NAME` — `^[A-Z][A-Z0-9_]{0,63}$`.
+
+```json
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-26T12:00:00.000Z",
+  "name": "PARTNER",
+  "description": "ключ партнёра",
+  "header": "Authorization: Bearer",
+  "body": false,
+  "allow": [{ "host": "example.com", "methods": ["GET"] }],
+  "bots": ["nora"]
+}
+```
+
+`header` — имя заголовка или `Имя: префикс`. `body` по умолчанию `false`. `allow[].host` — точный хост в punycode, без `*.`. `methods` — GET, HEAD, POST, PUT, PATCH, DELETE. `bots` — id ботов, которым видна ссылка `{{secret:NAME}}`. GET `/api/secrets` добавляет поле `set` (boolean) и не добавляет значение. Удаления файла и связки в API нет.
+
+Маска не собирает ключ, разрезанный разделителями. Не ловятся `w-J-a-…`, JSON-массив из отдельных символов и куски короче 8 символов через `|`. Это ограничение маски, код его не обходит.
+
 ## Безопасность
-Только 127.0.0.1; проверка Host/Origin (DNS rebinding) и CSRF-токен на запись. `data_dir` и файл конфига — внутри репозитория, без `..` и внешней ссылки. Папка проекта (`source.files.path`) может быть вне лаунчера. Секреты только из .env, в API и логи не попадают; gitleaks в pre-commit и CI.
+Только 127.0.0.1; проверка Host/Origin (DNS rebinding) и CSRF-токен на запись. `data_dir` и файл конфига — внутри репозитория, без `..` и внешней ссылки. Папка проекта (`source.files.path`) может быть вне лаунчера. Секреты только из .env или хранилища ОС, в API и логи не попадают; gitleaks в pre-commit и CI. Карточка закрытого ключа не читается из `config.yaml`.
 
 ## CI
 tsc strict, eslint, vitest (схемы, автомат, атомарная запись, манифест), Playwright на demo, LICENSE/NOTICE, gitleaks; матрица windows-latest + ubuntu-latest.

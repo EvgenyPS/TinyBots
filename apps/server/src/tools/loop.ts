@@ -102,8 +102,10 @@ export async function runToolLoop(input: {
   model: string
   system: string
   user: string
-  ctx: ToolRunContext
+  ctx?: ToolRunContext
   offerPropose: boolean
+  /** Узкий http_request. Без карточек ключа список инструментов прежний. */
+  channel?: { definition: unknown; run: (args: string, signal: AbortSignal) => Promise<string> }
   fetchImpl?: typeof fetch
   lookup?: Resolver
   sleep?: (ms: number) => Promise<void>
@@ -118,7 +120,10 @@ export async function runToolLoop(input: {
     { role: 'system', content: input.system },
     { role: 'user', content: input.user },
   ]
-  const tools = toolDefinitions(input.ctx.level, input.offerPropose)
+  const tools = [
+    ...(input.ctx ? toolDefinitions(input.ctx.level, input.offerPropose) : []),
+    ...(input.channel ? [input.channel.definition] : []),
+  ]
   let usage: TokenUsage | null = null
   let requests = 0
   let calls = 0
@@ -166,7 +171,14 @@ export async function runToolLoop(input: {
         calls += 1
         let raw: string
         try {
-          raw = await withTimeout((signal) => runTool(input.ctx, call.name, call.arguments, undefined, signal), sleep, deadline.signal)
+          const channel = input.channel
+          if (channel && call.name === 'http_request') {
+            raw = await withTimeout((signal) => channel.run(call.arguments, signal), sleep, deadline.signal)
+          } else if (input.ctx) {
+            raw = await withTimeout((signal) => runTool(input.ctx as ToolRunContext, call.name, call.arguments, undefined, signal), sleep, deadline.signal)
+          } else {
+            raw = JSON.stringify({ ok: false, error: 'неизвестный инструмент' })
+          }
         } catch {
           raw = JSON.stringify({ ok: false, error: 'инструмент дольше 10 с' })
         }

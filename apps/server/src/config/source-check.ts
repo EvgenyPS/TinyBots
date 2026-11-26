@@ -14,6 +14,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { isProjectFolderPath } from '@tinybots/schema'
+import { minimalChildEnv } from '../proc-env.js'
 import { resolveSetupTarget } from './setup-target.js'
 
 /** Дословно критерий B18. Экран показывает эту строку, тест ищет её целиком. */
@@ -43,14 +44,14 @@ export function judgeSource(look: SourceLook): SourceReport {
   return { ok: true, path: '', git: true, warning: null }
 }
 
-function gitEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env }
-  // Иначе git ответит про репозиторий процесса, а не про папку, которую указал человек.
-  delete env.GIT_DIR
-  delete env.GIT_WORK_TREE
-  delete env.GIT_INDEX_FILE
-  delete env.GIT_PREFIX
-  return env
+/** Узкое окружение. GIT_* родителя не копируются, ключи из .env и хранилища тоже. */
+export function sourceGitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...minimalChildEnv(),
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
+    GIT_TERMINAL_PROMPT: '0',
+  }
 }
 
 function gitPrefix(dir: string): Promise<string | null> {
@@ -59,7 +60,7 @@ function gitPrefix(dir: string): Promise<string | null> {
       'git',
       // Без safe.directory: звёздочка заставила бы git открыть любой путь, включая UNC.
       ['-C', dir, 'rev-parse', '--show-prefix'],
-      { timeout: 4000, windowsHide: true, encoding: 'utf8', env: gitEnv() },
+      { timeout: 4000, windowsHide: true, encoding: 'utf8', env: sourceGitEnv() },
       (error, stdout) => {
         if (error) {
           resolve(null)
