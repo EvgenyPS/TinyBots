@@ -12,6 +12,7 @@ import path from 'node:path'
 import { idSchema } from '@tinybots/schema'
 import { z } from 'zod'
 import { writeAtomic } from '../store/atomic.js'
+import { SECRET_MASK_MIN } from './mask.js'
 
 export const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,63}$/
 
@@ -66,7 +67,7 @@ export const secretWriteSchema = z.strictObject({
   body: z.boolean().optional(),
   allow: z.array(allowItem).min(1).max(16),
   bots: z.array(idSchema).max(32),
-  value: z.string().min(1).max(4096).optional(),
+  value: z.string().min(SECRET_MASK_MIN).max(4096).optional(),
   replace: z.boolean().optional(),
 })
 

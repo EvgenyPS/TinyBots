@@ -15,7 +15,7 @@ import { resetOsSecretCache, useOsSecretReader, useOsSecretWriter } from '../app
 import { startServer } from '../apps/server/dist/server.js'
 import { resetSecretRate, useSecretTransport } from '../apps/server/dist/secrets/request.js'
 
-const VALUE = 'e2e-channel-canary-value'
+const VALUE = 'e2e/channel+canary-value'
 const NAME = 'PARTNER'
 
 test.use({ viewport: { width: 1440, height: 900 } })
@@ -28,6 +28,7 @@ test('значение не возвращается, ссылка в URL и т�
   const dials: string[] = []
   let lookupIp = '1.1.1.1'
   let dialStatus = 200
+  let dialBody = 'ok'
   useOsSecretReader((name: string) => store.get(name) ?? null)
   useOsSecretWriter(async (name: string, value: string, replace: boolean) => {
     const current = store.get(name)
@@ -41,7 +42,7 @@ test('значение не возвращается, ссылка в URL и т�
     lookup: async () => [lookupIp],
     dial: async (input: { pinned: string }) => {
       dials.push(input.pinned)
-      return { status: dialStatus, headers: 'location: https://example.com/next', body: VALUE }
+      return { status: dialStatus, headers: 'location: https://example.com/next', body: dialBody }
     },
   })
   const bodies: string[] = []
@@ -146,6 +147,10 @@ test('значение не возвращается, ссылка в URL и т�
     await page.getByTestId('secret-host').fill('example.com')
     await page.getByTestId('secret-add-host').click()
     await page.getByTestId('secret-bot-nora').check()
+    await page.getByTestId('secret-value').fill('short12')
+    await page.getByTestId('secret-save').click()
+    await expect(page.getByTestId('secret-note')).toHaveText('Значение короче 8 символов')
+    expect(store.has(NAME)).toBe(false)
     await page.getByTestId('secret-value').fill(VALUE)
     await page.getByTestId('secret-save').click()
     await expect(page.getByTestId('secret-note')).toHaveText('задан')
@@ -197,6 +202,24 @@ test('значение не возвращается, ссылка в URL и т�
     expect(dials).toEqual([])
     expect(bodies.some((item) => item.includes('адрес не публичный'))).toBe(true)
     expect(bodies.some((item) => item.includes(VALUE))).toBe(false)
+
+    dials.length = 0
+    lookupIp = '1.1.1.1'
+    dialStatus = 200
+    const wrapped = Buffer.from(VALUE.repeat(3)).toString('base64').replace(/(.{76})/g, '$1\n')
+    const lowerUrl = encodeURIComponent(VALUE).replace(/%[0-9A-F]{2}/g, (item) => item.toLowerCase())
+    dialBody = [
+      VALUE.replaceAll('/', '\\/'),
+      lowerUrl,
+      wrapped,
+      VALUE.slice(0, Math.ceil(VALUE.length / 2)),
+    ].join('\n')
+    const coded = await ask('КОД')
+    expect(coded.includes(VALUE)).toBe(false)
+    expect(coded.includes(VALUE.replaceAll('/', '\\/'))).toBe(false)
+    expect(bodies.some((item) => item.includes(VALUE))).toBe(false)
+    expect(bodies.some((item) => item.includes(VALUE.replaceAll('/', '\\/')))).toBe(false)
+    expect(bodies.some((item) => item.includes(lowerUrl))).toBe(false)
   } finally {
     await server.close()
     await new Promise<void>((resolve) => mock.close(() => resolve()))

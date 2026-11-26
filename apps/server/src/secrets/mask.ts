@@ -1,57 +1,363 @@
 /**
  * FILE: apps/server/src/secrets/mask.ts
  * НАЗНАЧЕНИЕ: убрать значение закрытого ключа из текста, который увидит бот или журнал.
- * ВХОД: текст и сами значения. Короткое значение не трогаем: иначе «ok» съело бы обычные слова.
- * ВЫХОД: тот же текст, но значение и его кодировки заменены на [secret].
- * Один проход по каждой форме: подставленный текст повторно не разбирается.
- * Части ответа склеиваются до замены, чтобы значение, разрезанное между ними, тоже пропало.
+ * ВХОД: текст и сами значения. Короче 8 символов не трогаем: иначе «ok» съело бы обычные слова.
+ * ВЫХОД: текст без значения и его кодировок, либо фраза «ответ похож на ключ», если кусок
+ * виден только после склейки и его нельзя вырезать, не оставив хвост.
+ * Перед сравнением снимаем JSON-экранирование, percent-encoding без учёта регистра
+ * и пробелы с переводами строк внутри base64. Маскируется любой непрерывный кусок от 8 символов.
  */
 
-/** Короче этого порога значение не маскируется. Тот же порог, что у журнала. */
+/** Короче этого порога значение не маскируется. Тот же порог, что у журнала и приёма ключа. */
 export const SECRET_MASK_MIN = 8
+
+/** Тело ответа не отдаём: после нормализации ключ всё ещё читается, а вырезать его целиком нельзя. */
+export const SECRET_LOOKS_LIKE = 'ответ похож на ключ'
 
 const PLACEHOLDER = /\{\{secret:[A-Z][A-Z0-9_]{0,63}\}\}/g
 
-function jsonEscape(value: string): string {
-  return JSON.stringify(value).slice(1, -1)
+type Span = { start: number; end: number }
+
+type View = {
+  text: string
+  from: number[]
+  to: number[]
 }
 
-function variants(secret: string): string[] {
-  if (secret.length < SECRET_MASK_MIN) {
+function reverseSecret(secret: string): string {
+  return [...secret].reverse().join('')
+}
+
+function tracked(keys: readonly string[]): string[] {
+  const all = new Set<string>()
+  for (const key of keys) {
+    if (key.length < SECRET_MASK_MIN) {
+      continue
+    }
+    all.add(key)
+    const rev = reverseSecret(key)
+    if (rev.length >= SECRET_MASK_MIN) {
+      all.add(rev)
+    }
+  }
+  return [...all]
+}
+
+function pushChar(view: { text: string; from: number[]; to: number[] }, ch: string, start: number, end: number): void {
+  view.text += ch
+  for (let index = 0; index < ch.length; index += 1) {
+    view.from.push(start)
+    view.to.push(end)
+  }
+}
+
+function identity(text: string): View {
+  const from: number[] = []
+  const to: number[] = []
+  for (let index = 0; index < text.length; index += 1) {
+    from.push(index)
+    to.push(index + 1)
+  }
+  return { text, from, to }
+}
+
+function jsonUnescape(text: string): View {
+  const view = { text: '', from: [] as number[], to: [] as number[] }
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '\\' || index + 1 >= text.length) {
+      pushChar(view, text[index] ?? '', index, index + 1)
+      continue
+    }
+    const next = text[index + 1] ?? ''
+    const simple: Record<string, string> = {
+      '/': '/',
+      '"': '"',
+      '\\': '\\',
+      n: '\n',
+      r: '\r',
+      t: '\t',
+      b: '\b',
+      f: '\f',
+    }
+    if (Object.hasOwn(simple, next)) {
+      pushChar(view, simple[next] ?? '', index, index + 2)
+      index += 1
+      continue
+    }
+    if (next === 'u' && /^[0-9a-fA-F]{4}$/u.test(text.slice(index + 2, index + 6))) {
+      const code = Number.parseInt(text.slice(index + 2, index + 6), 16)
+      const pair = text.slice(index + 6, index + 12)
+      if (code >= 0xD800 && code <= 0xDBFF && pair.startsWith('\\u') && /^[0-9a-fA-F]{4}$/u.test(pair.slice(2))) {
+        const low = Number.parseInt(pair.slice(2), 16)
+        if (low >= 0xDC00 && low <= 0xDFFF) {
+          const point = (code - 0xD800) * 0x400 + (low - 0xDC00) + 0x10000
+          pushChar(view, String.fromCodePoint(point), index, index + 12)
+          index += 11
+          continue
+        }
+      }
+      pushChar(view, String.fromCharCode(code), index, index + 6)
+      index += 5
+      continue
+    }
+    pushChar(view, text[index] ?? '', index, index + 1)
+  }
+  return view
+}
+
+function isHex(char: string | undefined): boolean {
+  return char !== undefined && /^[0-9a-fA-F]$/u.test(char)
+}
+
+function percentDecode(text: string): View {
+  const view = { text: '', from: [] as number[], to: [] as number[] }
+  let index = 0
+  while (index < text.length) {
+    if (text[index] === '%' && isHex(text[index + 1]) && isHex(text[index + 2])) {
+      const bytes: number[] = []
+      const ranges: Span[] = []
+      while (text[index] === '%' && isHex(text[index + 1]) && isHex(text[index + 2])) {
+        bytes.push(Number.parseInt(text.slice(index + 1, index + 3), 16))
+        ranges.push({ start: index, end: index + 3 })
+        index += 3
+      }
+      let byte = 0
+      while (byte < bytes.length) {
+        const lead = bytes[byte] ?? 0
+        let need = 1
+        if ((lead & 0xE0) === 0xC0) {
+          need = 2
+        } else if ((lead & 0xF0) === 0xE0) {
+          need = 3
+        } else if ((lead & 0xF8) === 0xF0) {
+          need = 4
+        }
+        const run = bytes.slice(byte, byte + need)
+        const cont = need > 1 && run.length === need && run.slice(1).every((item) => (item & 0xC0) === 0x80)
+        if (cont) {
+          const start = ranges[byte]?.start ?? index
+          const end = ranges[byte + need - 1]?.end ?? index
+          pushChar(view, Buffer.from(run).toString('utf8'), start, end)
+          byte += need
+          continue
+        }
+        const range = ranges[byte]
+        pushChar(view, String.fromCharCode(lead), range?.start ?? index, range?.end ?? index)
+        byte += 1
+      }
+      continue
+    }
+    pushChar(view, text[index] ?? '', index, index + 1)
+    index += 1
+  }
+  return view
+}
+
+function compose(outer: View, inner: View): View {
+  const from = inner.from.map((at) => outer.from[at] ?? 0)
+  const to = inner.to.map((at) => outer.to[at - 1] ?? outer.to[outer.to.length - 1] ?? 0)
+  return { text: inner.text, from, to }
+}
+
+function viewOk(view: View): boolean {
+  return view.from.length === view.text.length && view.to.length === view.text.length
+}
+
+/** Непрерывные куски ключа от порога. Индекс 8-грамм сужает сравнение. */
+function chunkSpans(text: string, secret: string): Span[] {
+  if (secret.length < SECRET_MASK_MIN || text.length < SECRET_MASK_MIN) {
     return []
   }
-  const raw = [
-    secret,
-    Buffer.from(secret, 'utf8').toString('base64'),
-    Buffer.from(secret, 'utf8').toString('base64url'),
-    encodeURIComponent(secret),
-    Buffer.from(secret, 'utf8').toString('hex'),
-    Buffer.from(secret, 'utf8').toString('hex').toUpperCase(),
-    jsonEscape(secret),
-  ]
-  return [...new Set(raw.filter((item) => item.length >= SECRET_MASK_MIN))]
+  const grams = new Map<string, number[]>()
+  for (let index = 0; index <= secret.length - SECRET_MASK_MIN; index += 1) {
+    const gram = secret.slice(index, index + SECRET_MASK_MIN)
+    const list = grams.get(gram)
+    if (list) {
+      list.push(index)
+    } else {
+      grams.set(gram, [index])
+    }
+  }
+  const spans: Span[] = []
+  let index = 0
+  while (index <= text.length - SECRET_MASK_MIN) {
+    const list = grams.get(text.slice(index, index + SECRET_MASK_MIN))
+    if (!list) {
+      index += 1
+      continue
+    }
+    let best = 0
+    for (const at of list) {
+      let len = 0
+      const max = Math.min(secret.length - at, text.length - index)
+      while (len < max && text.charCodeAt(index + len) === secret.charCodeAt(at + len)) {
+        len += 1
+      }
+      if (len > best) {
+        best = len
+      }
+    }
+    if (best >= SECRET_MASK_MIN) {
+      spans.push({ start: index, end: index + best })
+      index += best
+      continue
+    }
+    index += 1
+  }
+  return spans
 }
 
-/** Токены base64, внутри которых лежит значение, включая Basic user:pass. */
-function maskBase64(text: string, secrets: readonly string[]): string {
-  const live = secrets.filter((item) => item.length >= SECRET_MASK_MIN)
-  if (live.length === 0) {
-    return text
+function mappedSpans(view: View, keys: readonly string[]): Span[] {
+  if (!viewOk(view)) {
+    return []
   }
-  return text.replace(/[A-Za-z0-9+/_-]{12,}={0,2}/g, (token) => {
-    const normalized = token.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-    let decoded = ''
-    try {
-      decoded = Buffer.from(padded, 'base64').toString('utf8')
-    } catch {
-      return token
+  const spans: Span[] = []
+  for (const key of keys) {
+    for (const span of chunkSpans(view.text, key)) {
+      const start = view.from[span.start]
+      const end = view.to[span.end - 1]
+      if (start === undefined || end === undefined || end <= start) {
+        continue
+      }
+      spans.push({ start, end })
     }
-    if (live.some((secret) => decoded.includes(secret))) {
-      return '[secret]'
+  }
+  return spans
+}
+
+function isBase64Char(char: string): boolean {
+  return /[A-Za-z0-9+/_-]/u.test(char)
+}
+
+function isSpace(char: string): boolean {
+  return char === ' ' || char === '\t' || char === '\n' || char === '\r'
+}
+
+function decodedHasKey(decoded: string, keys: readonly string[]): boolean {
+  return keys.some((key) => chunkSpans(decoded, key).length > 0)
+}
+
+function base64Spans(text: string, keys: readonly string[]): Span[] {
+  const spans: Span[] = []
+  let index = 0
+  while (index < text.length) {
+    if (!isBase64Char(text[index] ?? '')) {
+      index += 1
+      continue
     }
-    return token
-  })
+    let end = index
+    let alphabet = 0
+    while (end < text.length && (isBase64Char(text[end] ?? '') || isSpace(text[end] ?? ''))) {
+      if (isBase64Char(text[end] ?? '')) {
+        alphabet += 1
+      }
+      end += 1
+    }
+    while (end > index && isSpace(text[end - 1] ?? '')) {
+      end -= 1
+    }
+    if (alphabet >= 12) {
+      const raw = text.slice(index, end).replace(/\s+/gu, '').replace(/-/gu, '+').replace(/_/gu, '/')
+      const padded = raw + '='.repeat((4 - (raw.length % 4)) % 4)
+      const decoded = Buffer.from(padded, 'base64').toString('utf8')
+      if (decodedHasKey(decoded, keys)) {
+        spans.push({ start: index, end })
+      }
+    }
+    index = Math.max(end, index + 1)
+  }
+  return spans
+}
+
+function hexSpans(text: string, keys: readonly string[]): Span[] {
+  const spans: Span[] = []
+  for (const match of text.matchAll(/[0-9a-fA-F]{16,}/gu)) {
+    const raw = match[0]
+    const even = raw.length % 2 === 0 ? raw : raw.slice(0, -1)
+    if (even.length < 16 || match.index === undefined) {
+      continue
+    }
+    const decoded = Buffer.from(even, 'hex').toString('utf8')
+    if (decodedHasKey(decoded, keys)) {
+      spans.push({ start: match.index, end: match.index + even.length })
+    }
+  }
+  return spans
+}
+
+function views(text: string): View[] {
+  const json = jsonUnescape(text)
+  const percent = percentDecode(text)
+  return [
+    identity(text),
+    json,
+    percent,
+    compose(json, percentDecode(json.text)),
+    compose(percent, jsonUnescape(percent.text)),
+  ]
+}
+
+function compact(text: string): string {
+  return text.replace(/\s+/gu, '')
+}
+
+function leaks(text: string, keys: readonly string[]): boolean {
+  if (keys.length === 0) {
+    return false
+  }
+  const texts = views(text).map((view) => view.text)
+  for (const view of texts) {
+    const packed = compact(view)
+    for (const key of keys) {
+      if (chunkSpans(view, key).length > 0 || chunkSpans(packed, key).length > 0) {
+        return true
+      }
+    }
+  }
+  return base64Spans(text, keys).length > 0 || hexSpans(text, keys).length > 0
+}
+
+function mergeSpans(spans: readonly Span[]): Span[] {
+  const sorted = [...spans].filter((span) => span.end > span.start).sort((a, b) => a.start - b.start || a.end - b.end)
+  const merged: Span[] = []
+  for (const span of sorted) {
+    const last = merged[merged.length - 1]
+    if (!last || span.start > last.end) {
+      merged.push({ ...span })
+      continue
+    }
+    if (span.end > last.end) {
+      last.end = span.end
+    }
+  }
+  return merged
+}
+
+function applySpans(text: string, spans: readonly Span[]): string {
+  const merged = mergeSpans(spans)
+  let out = ''
+  let cursor = 0
+  for (const span of merged) {
+    if (span.start < cursor || span.end > text.length) {
+      return SECRET_LOOKS_LIKE
+    }
+    out += text.slice(cursor, span.start)
+    out += '[secret]'
+    cursor = span.end
+  }
+  return out + text.slice(cursor)
+}
+
+function collect(text: string, keys: readonly string[]): Span[] | null {
+  const spans: Span[] = []
+  for (const view of views(text)) {
+    if (!viewOk(view)) {
+      return null
+    }
+    spans.push(...mappedSpans(view, keys))
+  }
+  spans.push(...base64Spans(text, keys), ...hexSpans(text, keys))
+  return spans
 }
 
 /**
@@ -59,15 +365,20 @@ function maskBase64(text: string, secrets: readonly string[]): string {
  * в промпт боту её кладёт описание инструмента, а в ответ и журнал она не возвращается.
  */
 export function maskClosedChannel(text: string, secrets: readonly string[]): string {
-  let out = text.replace(PLACEHOLDER, '[secret]')
-  for (const secret of secrets) {
-    for (const form of variants(secret)) {
-      if (out.includes(form)) {
-        out = out.split(form).join('[secret]')
-      }
-    }
+  const keys = tracked(secrets)
+  const out = text.replace(PLACEHOLDER, '[secret]')
+  if (keys.length === 0) {
+    return out
   }
-  return maskBase64(out, secrets)
+  const spans = collect(out, keys)
+  if (spans === null) {
+    return SECRET_LOOKS_LIKE
+  }
+  const masked = spans.length === 0 ? out : applySpans(out, spans)
+  if (masked === SECRET_LOOKS_LIKE || leaks(masked, keys)) {
+    return SECRET_LOOKS_LIKE
+  }
+  return masked
 }
 
 /**

@@ -227,6 +227,24 @@ test('Н103: без --replace значение не спрашивается, е
   expect(asked).toBe(1)
 })
 
+test('Н106: значение короче 8 символов не пишется', async () => {
+  let writes = 0
+  const saved = await performSet({
+    Entry: class {
+      getPassword(): null {
+        return null
+      }
+      setPassword(): void {
+        writes += 1
+      }
+    },
+  }, NAME, false, async () => 'short12')
+  expect(saved).toEqual({ ok: false, reason: 'short' })
+  expect(writes).toBe(0)
+  const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'secret.mjs'), 'utf8')
+  expect(source.includes('значение короче 8 символов')).toBe(true)
+})
+
 test('в команде нет удаления ключа', () => {
   const file = path.join(path.dirname(fileURLToPath(import.meta.url)), 'secret.mjs')
   const source = readFileSync(file, 'utf8')

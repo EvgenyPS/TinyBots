@@ -229,6 +229,10 @@ export async function performSet(keyring, name, replace, readValue) {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return { ok: false, reason: 'empty' }
   }
+  // Н106: короче порога маски ключ сохранять нельзя — иначе ответ боту его не закроет.
+  if (value.trim().length < 8) {
+    return { ok: false, reason: 'short' }
+  }
   return writeSecret(keyring, name, value, replace)
 }
 
@@ -327,6 +331,10 @@ async function main() {
   const saved = await performSet(keyring, name, parsed.replace, readHidden)
   if (!saved.ok && saved.reason === 'empty') {
     fail('пустое значение')
+    return
+  }
+  if (!saved.ok && saved.reason === 'short') {
+    fail('значение короче 8 символов')
     return
   }
   if (!saved.ok) {

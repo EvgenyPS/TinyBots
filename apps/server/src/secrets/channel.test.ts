@@ -21,7 +21,7 @@ import { forgetSecrets, rememberSecret } from '../redact.js'
 import { repoRoot } from '../root.js'
 import { startServer, type RunningServer } from '../server.js'
 import { writeChat, writeNote } from '../llm/store.js'
-import { SECRET_MASK_MIN, maskClosedChannel, maskParts } from './mask.js'
+import { SECRET_LOOKS_LIKE, SECRET_MASK_MIN, maskClosedChannel, maskParts } from './mask.js'
 import { writeSecretFile } from './meta.js'
 import { resetSecretRate, runHttpRequest, useSecretTransport, type SecretDialResult } from './request.js'
 
@@ -136,6 +136,35 @@ test('маска закрывает буквальное значение и к�
   const split = maskParts([`aa${VALUE.slice(0, 6)}`, `${VALUE.slice(6)}zz`], [VALUE]).join('')
   expect(split.includes(VALUE)).toBe(false)
   expect(split.includes('[secret]')).toBe(true)
+})
+
+test('маска закрывает кодировки, куски от 8 символов и отказ, если кусок нельзя вырезать', () => {
+  const sample = 'abcd/efgh+ijkl/mnop+qrstuvwx'
+  expect(sample.includes('/')).toBe(true)
+  expect(sample.includes('+')).toBe(true)
+  const unicode = sample.replace(/[^A-Za-z0-9]/gu, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  const wrapped = Buffer.from(`${sample}${sample}${sample}`, 'utf8').toString('base64').replace(/(.{76})/gu, '$1\n')
+  const forms = [
+    sample.replaceAll('/', '\\/'),
+    unicode,
+    encodeURIComponent(sample).replace(/%[0-9A-F]{2}/gu, (item) => item.toLowerCase()),
+    wrapped,
+    sample.slice(0, Math.ceil(sample.length / 2)),
+    sample.slice(Math.floor(sample.length / 2)),
+  ]
+  for (const form of forms) {
+    const masked = maskClosedChannel(`до ${form} после`, [sample])
+    expect(masked.includes(form), form).toBe(false)
+    expect(masked.includes(sample), form).toBe(false)
+    expect(masked.includes('[secret]'), form).toBe(true)
+  }
+  const torn = sample.split('').join(' ')
+  expect(maskClosedChannel(torn, [sample])).toBe(SECRET_LOOKS_LIKE)
+  const reversed = [...sample].reverse().join('')
+  const revMasked = maskClosedChannel(`до ${reversed} после`, [sample])
+  expect(revMasked.includes(reversed)).toBe(false)
+  expect(revMasked.includes(sample)).toBe(false)
+  expect(maskClosedChannel('обычный ответ сервера', [sample])).toBe('обычный ответ сервера')
 })
 
 test('http_request: url, тело без флага, чужой бот и неизвестное имя', async () => {
@@ -332,6 +361,22 @@ test('GET не возвращает значение, POST пишет его, б
     const opened = await fetch(`${origin}/api/launcher`)
     const csrf = ((await opened.json()) as { csrf?: string }).csrf ?? ''
     const headers = { Origin: origin, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }
+    const tooShort = await fetch(`${origin}/api/secrets`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: NAME,
+        description: 'ключ партнёра',
+        header: 'Authorization: Bearer',
+        body: false,
+        allow: [{ host: 'example.com', methods: ['GET'] }],
+        bots: ['nora'],
+        value: 'short12',
+      }),
+    })
+    expect(tooShort.status).toBe(422)
+    expect(await tooShort.text()).toContain('short')
+    expect(store.has(NAME)).toBe(false)
     const saved = await fetch(`${origin}/api/secrets`, {
       method: 'POST',
       headers,

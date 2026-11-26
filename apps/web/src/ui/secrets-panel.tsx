@@ -89,6 +89,10 @@ export function SecretsPanel(props: {
     if (!props.csrf || busy) {
       return
     }
+    if (value.trim().length > 0 && value.trim().length < 8) {
+      setNote('Значение короче 8 символов')
+      return
+    }
     setBusy(true)
     setNote(null)
     try {
@@ -112,7 +116,11 @@ export function SecretsPanel(props: {
         return
       }
       if (!res.ok) {
-        setNote(data.error === 'exists' ? 'Уже задан. Введите значение ещё раз для замены.' : 'Не записалось')
+        setNote(data.error === 'exists'
+          ? 'Уже задан. Введите значение ещё раз для замены.'
+          : data.error === 'short'
+            ? 'Значение короче 8 символов'
+            : 'Не записалось')
         return
       }
       setValue('')

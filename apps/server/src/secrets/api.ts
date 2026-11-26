@@ -9,9 +9,22 @@
 import { loadConfigAt, resolveDataDir, selectConfigRequest } from '../config/load.js'
 import type { LaunchOptions } from '../launcher/view.js'
 import { osSecretIsSet, writeOsSecret } from '../llm/os-secret.js'
+import { SECRET_MASK_MIN } from './mask.js'
 import { listSecretFiles, metaHoldsValue, normalizeWrite, secretWriteSchema, toView, writeSecretFile, type SecretView } from './meta.js'
 
 export type SecretReply = { status: number; body: Record<string, unknown> }
+
+function shortSecret(payload: unknown): boolean {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || !('value' in payload)) {
+    return false
+  }
+  const value = payload.value
+  if (typeof value !== 'string') {
+    return false
+  }
+  const trimmed = value.trim()
+  return trimmed.length > 0 && trimmed.length < SECRET_MASK_MIN
+}
 
 function opened(root: string, options: LaunchOptions | undefined): { dataDir: string; bots: string[] } | null {
   const loaded = loadConfigAt(root, selectConfigRequest(root, options?.configPath))
@@ -42,6 +55,9 @@ export async function postSecret(root: string, options: LaunchOptions | undefine
   const box = opened(root, options)
   if (!box) {
     return { status: 422, body: { ok: false, error: 'config' } }
+  }
+  if (shortSecret(payload)) {
+    return { status: 422, body: { ok: false, error: 'short' } }
   }
   const parsed = secretWriteSchema.safeParse(payload)
   if (!parsed.success) {
