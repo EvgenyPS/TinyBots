@@ -42,6 +42,7 @@ import { postBotChat, postBriefSend, readBotChat } from './llm/http.js'
 import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
 import { postDecision, postSync } from './merge/http.js'
 import { getProposals, postProposalApply, postProposalReject, postProposalRevert } from './proposals/http.js'
+import { getSecrets, postSecret } from './secrets/api.js'
 import type { ConfigFailure } from './config/load.js'
 import { recoverProposals } from './proposals/engine.js'
 import { loadConfigAt, resolveDataDir, selectConfigRequest } from './config/load.js'
@@ -84,6 +85,7 @@ function isWrite(method: string, pathname: string): boolean {
     || pathname === '/api/proposals/reject'
     ||     pathname === '/api/proposals/revert'
     || pathname === '/api/bots/tools'
+    || pathname === '/api/secrets'
   )
 }
 
@@ -409,6 +411,16 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
 
   app.post('/api/bots/tools', async (c) => {
     return proposalPost(c, (payload) => setupQueue(() => saveBotTools(root, options, payload)), csrf)
+  })
+
+  app.get('/api/secrets', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const sent = await getSecrets(root, options)
+    return c.json(sent.body, sent.status as 200 | 422)
+  })
+
+  app.post('/api/secrets', async (c) => {
+    return proposalPost(c, (payload) => setupQueue(() => postSecret(root, options, payload, options?.now?.() ?? new Date())), csrf)
   })
 
   app.post('/api/proposals/apply', async (c) => {

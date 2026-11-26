@@ -10,6 +10,7 @@ import { lstat, mkdir, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { canProposalTransition, type Proposal } from '@tinybots/schema'
 import { ApplyKilled, acceptProjectFiles, restoreProjectFiles, sha256Of } from '../merge/files-apply.js'
+import { redact } from '../redact.js'
 import { readNoFollow } from '../store/nofollow.js'
 import { writeAtomic } from '../store/atomic.js'
 import { applyUnifiedDiff, parseUnifiedDiff } from '../tools/diff.js'
@@ -116,6 +117,10 @@ export async function createProposal(input: {
   live(input.signal)
   if (input.summary.trim().length === 0) {
     return { ok: false, error: 'нужна сводка' }
+  }
+  // Ссылка и значение не должны осесть в предложении. Отказ до записи файла.
+  if (redact(input.summary) !== input.summary || redact(input.diff) !== input.diff) {
+    return { ok: false, error: 'секрет в предложении' }
   }
   const ctx = await sandboxOf(input.projectReal, input.dataReal, input.configReal, input.respectGitignore)
   const parsed = parseUnifiedDiff(input.diff)

@@ -24,14 +24,23 @@ export function systemPrompt(input: {
   instructions: string
   rulesBase: string
   replyLimit: 'short' | 'long'
+  /** Имя и описание. Значения ключа в этом списке нет. */
+  secrets?: readonly { name: string; description: string }[]
 }): string {
-  return [
+  const lines = [
     `Роль: ${input.role}`,
     `Инструкции: ${input.instructions}`,
     'Базовые правила включены всегда, выключателя нет.',
     input.rulesBase,
     replyLimitLine(input.replyLimit),
-  ].join('\n')
+  ]
+  if (input.secrets && input.secrets.length > 0) {
+    lines.push('Закрытые ключи. В тексте только ссылка и описание, значения нет.')
+    for (const secret of input.secrets) {
+      lines.push(`{{secret:${secret.name}}} — ${secret.description}`)
+    }
+  }
+  return lines.join('\n')
 }
 
 /** Просьба о записке лежит в реплике пользователя, не в чужих файлах. */

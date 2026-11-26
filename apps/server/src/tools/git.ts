@@ -12,6 +12,7 @@ import { execFile as execFileCb, type ExecFileException } from 'node:child_proce
 import { constants } from 'node:fs'
 import { access, lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
+import { withoutSecrets } from '../proc-env.js'
 import { logSafe } from '../redact.js'
 import { GIT_MAX_BUFFER, GIT_MIN, GIT_TIMEOUT_MS } from './limits.js'
 
@@ -233,7 +234,7 @@ export function buildGitEnv(input: {
       }
     }
   }
-  return env
+  return withoutSecrets(env)
 }
 
 export function gitPrefix(rootReal: string, hooksPath: string): string[] {

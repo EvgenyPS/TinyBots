@@ -14,6 +14,7 @@ import { DocsPanel } from './docs-panel'
 import { FilesPanel } from './files-panel'
 import { GitPanel } from './git-panel'
 import { MergeModal, ProposalDrawer, ProposalModal, proposalBadgeCount, proposalCardMeta, type DecideInput, type MergeView, type ProposalView } from './merge-modal'
+import { SecretsPanel } from './secrets-panel'
 
 import { useEffect, useState } from 'react'
 
@@ -362,6 +363,7 @@ export function Dashboard() {
   const [revertOpen, setRevertOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [settingsOn, setSettingsOn] = useState(false)
+  const [secretsOn, setSecretsOn] = useState(false)
 
   useEffect(() => {
     const saved = window.localStorage.getItem('tinybots-theme')
@@ -680,6 +682,7 @@ export function Dashboard() {
             <button type="button" className={panel === 'rules' ? 'tab on' : 'tab'} data-testid="tab-rules" onClick={() => setPanel('rules')}>Правила</button>
           </nav>
           <div className="acts">
+            <button type="button" className="btn" data-testid="secrets-open" onClick={() => setSecretsOn(true)}>Ключи</button>
             <button
               type="button"
               className="btn"
@@ -944,6 +947,9 @@ export function Dashboard() {
           </aside>
         </div>
       </div>
+      {secretsOn ? (
+        <SecretsPanel csrf={csrf} bots={data.bots.map((bot) => ({ id: bot.id, name: bot.name }))} onClose={() => setSecretsOn(false)} />
+      ) : null}
       {settingsOn && selected && project ? (
         <BotTools
           key={`${selected.id}:${project.id}`}

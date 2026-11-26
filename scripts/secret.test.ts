@@ -20,6 +20,7 @@ import {
   inspectPresence,
   normalizeSecretInput,
   parseArgs,
+  performSet,
   presenceLine,
   secretNameSchema,
   validateName,
@@ -187,6 +188,43 @@ test('лишний аргумент и --replace не попадают в тек
   expect(parseArgs(['set', NAME, '--replace'])).toMatchObject({ name: NAME, replace: true, extra: false })
   expect(commandRefusal(parseArgs(['check', NAME, '--replace']))).toBe('у check нет --replace')
   expect(commandRefusal(parseArgs(['set', NAME]))).toBeNull()
+})
+
+test('Н103: без --replace значение не спрашивается, если запись уже есть', async () => {
+  let reads = 0
+  const saved = await performSet({
+    Entry: class {
+      getPassword(): string {
+        return 'old-canary-value'
+      }
+      setPassword(): void {
+        throw new Error('write')
+      }
+    },
+  }, NAME, false, async () => {
+    reads += 1
+    return VALUE
+  })
+  expect(saved).toEqual({ ok: false, reason: 'exists' })
+  expect(reads).toBe(0)
+  expect(JSON.stringify(saved).includes('old-canary-value')).toBe(false)
+
+  let asked = 0
+  const fresh = await performSet({
+    Entry: class {
+      getPassword(): null {
+        return null
+      }
+      setPassword(value: string): void {
+        expect(value).toBe(VALUE)
+      }
+    },
+  }, NAME, false, async () => {
+    asked += 1
+    return VALUE
+  })
+  expect(fresh).toEqual({ ok: true })
+  expect(asked).toBe(1)
 })
 
 test('в команде нет удаления ключа', () => {

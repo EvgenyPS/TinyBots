@@ -199,6 +199,39 @@ export function inspectPresence(keyring, name, env, dotenvText) {
  * молчаливая замена стирала бы прежний ключ, а команды удаления нет.
  * Текст исключения и старое значение наружу не возвращаем.
  */
+/** Есть ли непустое значение. Само значение наружу не отдаём. */
+export function secretPresent(keyring, name) {
+  try {
+    const entry = new keyring.Entry(SERVICE, name, LINUX_OPTIONS)
+    const value = entry.getPassword()
+    return typeof value === 'string' && value.trim().length > 0
+  } catch {
+    return 'unavailable'
+  }
+}
+
+/**
+ * Н103: без --replace уже лежащая запись отвергается до чтения нового значения.
+ * readValue вызывается только если запись можно менять.
+ */
+export async function performSet(keyring, name, replace, readValue) {
+  if (!keyring) {
+    return { ok: false, reason: 'unavailable' }
+  }
+  const present = secretPresent(keyring, name)
+  if (present === 'unavailable') {
+    return { ok: false, reason: 'unavailable' }
+  }
+  if (present && !replace) {
+    return { ok: false, reason: 'exists' }
+  }
+  const value = await readValue()
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return { ok: false, reason: 'empty' }
+  }
+  return writeSecret(keyring, name, value, replace)
+}
+
 export function writeSecret(keyring, name, value, replace = false) {
   try {
     const entry = new keyring.Entry(SERVICE, name, LINUX_OPTIONS)
@@ -290,17 +323,12 @@ async function main() {
     console.log(inspectPresence(keyring, name, process.env, dotenvText))
     return
   }
-  const value = await readHidden()
-  if (value.trim().length === 0) {
+  const keyring = await loadKeyring()
+  const saved = await performSet(keyring, name, parsed.replace, readHidden)
+  if (!saved.ok && saved.reason === 'empty') {
     fail('пустое значение')
     return
   }
-  const keyring = await loadKeyring()
-  if (!keyring) {
-    fail('хранилище ОС недоступно')
-    return
-  }
-  const saved = writeSecret(keyring, name, value, parsed.replace)
   if (!saved.ok) {
     fail(saved.reason === 'exists'
       ? 'в хранилище уже есть запись, для замены добавьте --replace'
