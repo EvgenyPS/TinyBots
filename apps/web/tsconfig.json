@@ -6,10 +6,13 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] },
+    "resolveJsonModule": true,
     "emitDeclarationOnly": true,
     "outDir": "dist-types",
     "rootDir": "src",
     "tsBuildInfoFile": "dist-types/tsconfig.tsbuildinfo"
   },
-  "include": ["src"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.json"]
 }

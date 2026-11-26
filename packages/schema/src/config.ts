@@ -26,11 +26,29 @@ export const LLM_PRESET_BASE_URL = {
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
 } as const
 
+/**
+ * 12 id из manifest аватаров v3. Поле необязательное: старый конфиг без него проходит.
+ * Имя avatarId, не avatar_id: так поле названо в брифе 0.3.2. avatar остаётся путём к своей картинке.
+ */
+export const AVATAR_IDS = [
+  'sunny', 'berry', 'mint', 'grape', 'sky', 'ember', 'ocean', 'plum', 'kitty', 'bunny', 'ghost', 'robo',
+] as const
+
+/** 10 цветов палитры v3. «Свой» в мастере — это отсутствие поля, не одиннадцатое значение. */
+export const AVATAR_COLORS = [
+  'violet', 'pink', 'coral', 'orange', 'yellow', 'green', 'teal', 'blue', 'lilac', 'slate',
+] as const
+
+export const avatarIdSchema = z.enum(AVATAR_IDS)
+export const avatarColorSchema = z.enum(AVATAR_COLORS)
+
 const botCommon = {
   id: idSchema,
   name: z.string().min(1),
   role: z.string().min(1),
   avatar: containedPathSchema.optional(),
+  avatarId: avatarIdSchema.optional(),
+  avatarColor: avatarColorSchema.optional(),
   executor_for_merge: z.boolean().optional(),
   paused: z.boolean().optional(),
 }

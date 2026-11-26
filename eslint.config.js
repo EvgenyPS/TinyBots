@@ -23,6 +23,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ['apps/web/src/avatars/**/*.js'],
+    languageOptions: {
+      globals: globals.browser,
+    },
+  },
+  {
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },

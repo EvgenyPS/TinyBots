@@ -56,6 +56,38 @@
               "avatar": {
                 "type": "string"
               },
+              "avatarId": {
+                "type": "string",
+                "enum": [
+                  "sunny",
+                  "berry",
+                  "mint",
+                  "grape",
+                  "sky",
+                  "ember",
+                  "ocean",
+                  "plum",
+                  "kitty",
+                  "bunny",
+                  "ghost",
+                  "robo"
+                ]
+              },
+              "avatarColor": {
+                "type": "string",
+                "enum": [
+                  "violet",
+                  "pink",
+                  "coral",
+                  "orange",
+                  "yellow",
+                  "green",
+                  "teal",
+                  "blue",
+                  "lilac",
+                  "slate"
+                ]
+              },
               "executor_for_merge": {
                 "type": "boolean"
               },
@@ -127,6 +159,38 @@
               },
               "avatar": {
                 "type": "string"
+              },
+              "avatarId": {
+                "type": "string",
+                "enum": [
+                  "sunny",
+                  "berry",
+                  "mint",
+                  "grape",
+                  "sky",
+                  "ember",
+                  "ocean",
+                  "plum",
+                  "kitty",
+                  "bunny",
+                  "ghost",
+                  "robo"
+                ]
+              },
+              "avatarColor": {
+                "type": "string",
+                "enum": [
+                  "violet",
+                  "pink",
+                  "coral",
+                  "orange",
+                  "yellow",
+                  "green",
+                  "teal",
+                  "blue",
+                  "lilac",
+                  "slate"
+                ]
               },
               "executor_for_merge": {
                 "type": "boolean"

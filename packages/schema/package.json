@@ -1,6 +1,6 @@
 {
   "name": "@tinybots/schema",
-  "version": "0.0.0",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "description": "Общие zod-схемы контракта TinyBots и генерация JSON Schema.",

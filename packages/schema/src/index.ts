@@ -21,8 +21,12 @@ export {
 } from './common.js'
 export {
   API_KEY_ENV_PATTERN,
+  AVATAR_COLORS,
+  AVATAR_IDS,
   LLM_PRESET_BASE_URL,
   apiBotSchema,
+  avatarColorSchema,
+  avatarIdSchema,
   applyModeSchema,
   botSchema,
   configSchema,

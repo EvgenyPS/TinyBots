@@ -1,6 +1,11 @@
+import tailwind from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import { LLM_PRESET_BASE_URL } from '../../packages/schema/src/config.ts'
+
+const webRoot = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * В браузер кладём только два официальных адреса.
@@ -28,7 +33,10 @@ function llmPresetBaseUrl(): Plugin {
 
 // Dev-сервер тоже только на loopback: флаг --host без адреса открыл бы все интерфейсы.
 export default defineConfig({
-  plugins: [react(), llmPresetBaseUrl()],
+  plugins: [react(), tailwind(), llmPresetBaseUrl()],
+  resolve: {
+    alias: { '@': path.join(webRoot, 'src') },
+  },
   server: {
     host: '127.0.0.1',
     strictPort: true,

@@ -32,6 +32,13 @@ TinyBots — локальный пульт над ботами. Репозито
 - Проверено локально: `npx tsc -b`, vitest 137, e2e 29, `check:forbidden`, `check:motion`, gitleaks.
 - После ревью: чтение тела модели в try, CSRF и пауза чата покрыты тестами, ключ в реплике и ответе прячется. Пресет deepseek/qwen подставляет официальный HTTPS. IPv6 со встроенным IPv4 отсекается.
 
+## Мастер на shadcn и аватары (0.3.2)
+
+- Tailwind v4 подключён плагином Vite, preflight выключен. CSS мастера грузится отдельным куском, токены на `.tb-wizard`.
+- Шаги мастера на компонентах `apps/web/src/components/ui`. Select и «Дополнительно» остались нативными: e2e зовёт `selectOption` и читает `HTMLDetailsElement.open`.
+- Аватары v3 лежат в `apps/web/src/avatars`. `<BotAvatar>` вставляет SVG инлайном и один раз вызывает `followPointer()`.
+- В схеме бота необязательные `avatarId` и `avatarColor`. Поле `avatar` (путь) не трогали.
+
 ## Мастер, шаг «Боты» (0.3.1)
 
 - Свой API-бот: модель из списка (DeepSeek `deepseek-chat` / `deepseek-reasoner`, Qwen — текстовые модели DashScope `qwen4-max`, `qwen3.7-plus`, `qwen3.8-flash`). Пункт «своя» открывает ручной ввод.

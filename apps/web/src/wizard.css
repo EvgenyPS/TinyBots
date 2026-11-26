@@ -1,0 +1,263 @@
+/**
+ * Стили только мастера. Preflight Tailwind не подключён: иначе сброс
+ * margin/button задел бы весь пульт. Токены живут на .tb-wizard, не на :root,
+ * чтобы --card и --accent пульта не перезаписались.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --font-sans: "Manrope Variable", Manrope, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@source "./**/*.{ts,tsx}";
+
+.tb-wizard {
+  --radius: 0.625rem;
+  --background: #f6f5fb;
+  --foreground: #1a1430;
+  --card: #ffffff;
+  --card-foreground: #1a1430;
+  --popover: #ffffff;
+  --popover-foreground: #1a1430;
+  --primary: #6b4cff;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f1f9;
+  --secondary-foreground: #1a1430;
+  --muted: #f3f1f9;
+  --muted-foreground: #6b6585;
+  --accent: #efeaff;
+  --accent-foreground: #3d2bb3;
+  --border: #e7e3f1;
+  --input: #e1dcee;
+  --ring: #6b4cff;
+  --warn-bg: #fff8e6;
+  --warn-bd: #f3dfa6;
+  --warn-fg: #6b4a00;
+  --wz-shadow: 0 1px 2px rgba(26, 20, 48, 0.05);
+  --wz-shadow-lg: 0 20px 50px -12px rgba(40, 24, 110, 0.22);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--foreground);
+  background:
+    radial-gradient(900px 400px at 85% -10%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 70%),
+    var(--background);
+  font-family: "Manrope Variable", Manrope, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color-scheme: light;
+}
+
+.tb-wizard.dark {
+  --background: #12101c;
+  --foreground: #f1eefc;
+  --card: #1d1930;
+  --card-foreground: #f1eefc;
+  --popover: #221d38;
+  --popover-foreground: #f1eefc;
+  --primary: #9b85ff;
+  --primary-foreground: #130f22;
+  --secondary: #262140;
+  --secondary-foreground: #f1eefc;
+  --muted: #262140;
+  --muted-foreground: #a39cc0;
+  --accent: #2c2550;
+  --accent-foreground: #d9d0ff;
+  --border: #2f2a48;
+  --input: #3a3458;
+  --ring: #9b85ff;
+  --warn-bg: #2a2314;
+  --warn-bd: #4a3c1c;
+  --warn-fg: #f3d58a;
+  --wz-shadow: none;
+  --wz-shadow-lg: 0 24px 60px -12px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+.tb-wizard :focus-visible {
+  outline: none;
+}
+
+.tb-wizard .wz-shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: var(--wz-shadow-lg);
+  overflow: hidden;
+}
+
+.tb-wizard .wz-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 20px 14px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in oklab, var(--muted) 55%, var(--card));
+}
+
+.tb-wizard .wz-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tb-wizard .wz-narrow { display: none; }
+
+.tb-wizard .wz-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+  min-width: 0;
+}
+
+.tb-wizard .wz-trio {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.tb-wizard .wz-select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 15px, calc(100% - 11px) 15px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+
+.tb-wizard .wz-switch {
+  appearance: none;
+  width: 32px;
+  height: 18px;
+  border-radius: 99px;
+  border: 0;
+  padding: 0;
+  margin-top: 2px;
+  flex: none;
+  background: var(--input);
+  position: relative;
+  cursor: pointer;
+}
+
+.tb-wizard .wz-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 99px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 200ms;
+}
+
+.tb-wizard .wz-switch:checked { background: var(--primary); }
+.tb-wizard .wz-switch:checked::after { transform: translateX(14px); }
+.tb-wizard.dark .wz-switch:checked::after { background: var(--primary-foreground); }
+
+.tb-wizard .wz-radio {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 99px;
+  border: 1px solid var(--input);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.tb-wizard .wz-radio:checked { border-color: var(--primary); }
+.tb-wizard .wz-radio:checked::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--primary);
+}
+
+.tb-wizard .wz-acc { border-top: 1px solid var(--border); margin-top: 4px; }
+.tb-wizard .wz-acc-t {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.tb-wizard .wz-acc-t::-webkit-details-marker { display: none; }
+.tb-wizard .wz-chev { color: var(--muted-foreground); transition: transform 200ms; }
+.tb-wizard .wz-acc[open] .wz-chev { transform: rotate(180deg); }
+.tb-wizard .wz-acc-c { display: flex; flex-direction: column; gap: 10px; padding-bottom: 4px; }
+
+.tb-wizard .wz-warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-bd);
+  color: var(--warn-fg);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.tb-wizard .wz-mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+@media (max-width: 719px) {
+  .tb-wizard .wz-shell { grid-template-columns: 1fr; }
+  .tb-wizard .wz-rail { border-right: 0; border-bottom: 1px solid var(--border); }
+  .tb-wizard .wz-steps,
+  .tb-wizard .wz-rail-foot { display: none; }
+  .tb-wizard .wz-narrow { display: block; }
+  .tb-wizard .wz-pair,
+  .tb-wizard .wz-trio,
+  .tb-wizard .wz-radios { grid-template-columns: 1fr; }
+  .tb-wizard .wz-pop { flex-direction: column; width: min(560px, calc(100vw - 24px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-wizard,
+  .tb-wizard * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
