@@ -1,0 +1,145 @@
+{
+  "version": "3.0.0",
+  "viewBox": "0 0 64 64",
+  "sizes": [
+    32,
+    44,
+    64,
+    96
+  ],
+  "default": "grape",
+  "states": [
+    "idle",
+    "thinking",
+    "talking",
+    "happy",
+    "error",
+    "sleep"
+  ],
+  "palette": {
+    "violet": {
+      "hi": "#ddd2ff",
+      "mid": "#aa8dff",
+      "lo": "#6b45e4"
+    },
+    "pink": {
+      "hi": "#ffc2dc",
+      "mid": "#f57abb",
+      "lo": "#cb3182"
+    },
+    "coral": {
+      "hi": "#ffd0c8",
+      "mid": "#ff9185",
+      "lo": "#e24c3e"
+    },
+    "orange": {
+      "hi": "#ffd9c2",
+      "mid": "#ffb286",
+      "lo": "#e67840"
+    },
+    "yellow": {
+      "hi": "#fff1b8",
+      "mid": "#fad162",
+      "lo": "#dd9d18"
+    },
+    "green": {
+      "hi": "#c7f7d8",
+      "mid": "#68d094",
+      "lo": "#1f9655"
+    },
+    "teal": {
+      "hi": "#c4f6ff",
+      "mid": "#60cfe2",
+      "lo": "#1491a6"
+    },
+    "blue": {
+      "hi": "#d6e6ff",
+      "mid": "#8aaeff",
+      "lo": "#3e6fe4"
+    },
+    "lilac": {
+      "hi": "#f1e8ff",
+      "mid": "#d4bfff",
+      "lo": "#9f7deb"
+    },
+    "slate": {
+      "hi": "#c9ccd8",
+      "mid": "#9195a6",
+      "lo": "#4c5163"
+    }
+  },
+  "avatars": [
+    {
+      "id": "sunny",
+      "name": "Солнышко",
+      "defaultColor": "yellow",
+      "svg": "svg/sunny.svg"
+    },
+    {
+      "id": "berry",
+      "name": "Ягодка",
+      "defaultColor": "pink",
+      "svg": "svg/berry.svg"
+    },
+    {
+      "id": "mint",
+      "name": "Мятик",
+      "defaultColor": "green",
+      "svg": "svg/mint.svg"
+    },
+    {
+      "id": "grape",
+      "name": "Виноград",
+      "defaultColor": "violet",
+      "svg": "svg/grape.svg"
+    },
+    {
+      "id": "sky",
+      "name": "Облачко",
+      "defaultColor": "blue",
+      "svg": "svg/sky.svg"
+    },
+    {
+      "id": "ember",
+      "name": "Огонёк",
+      "defaultColor": "orange",
+      "svg": "svg/ember.svg"
+    },
+    {
+      "id": "ocean",
+      "name": "Волна",
+      "defaultColor": "teal",
+      "svg": "svg/ocean.svg"
+    },
+    {
+      "id": "plum",
+      "name": "Кристалл",
+      "defaultColor": null,
+      "svg": "svg/plum.svg"
+    },
+    {
+      "id": "kitty",
+      "name": "Котик",
+      "defaultColor": "orange",
+      "svg": "svg/kitty.svg"
+    },
+    {
+      "id": "bunny",
+      "name": "Зайка",
+      "defaultColor": "lilac",
+      "svg": "svg/bunny.svg"
+    },
+    {
+      "id": "ghost",
+      "name": "Призрачок",
+      "defaultColor": null,
+      "svg": "svg/ghost.svg"
+    },
+    {
+      "id": "robo",
+      "name": "Робик",
+      "defaultColor": "slate",
+      "svg": "svg/robo.svg"
+    }
+  ]
+}

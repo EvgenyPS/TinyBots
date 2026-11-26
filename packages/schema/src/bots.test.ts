@@ -64,6 +64,15 @@ test('superRefine отвергает http вне loopback и частный ад
   expect(configSchema.safeParse(config('https://api.deepseek.com')).success).toBe(true)
 })
 
+test('avatarId и avatarColor необязательны и только из списков v3', () => {
+  expect(apiBotSchema.safeParse({ ...apiBot, avatarId: 'grape', avatarColor: 'violet' }).success).toBe(true)
+  expect(grokBotSchema.safeParse({ id: 'lead1', name: 'Ава', role: 'тимлид', avatarId: 'robo' }).success).toBe(true)
+  expect(apiBotSchema.safeParse({ ...apiBot, avatar: 'assets/ava.svg', avatarId: 'mint' }).success).toBe(true)
+  expect(apiBotSchema.safeParse({ ...apiBot, avatarId: 'nope' }).success).toBe(false)
+  expect(apiBotSchema.safeParse({ ...apiBot, avatarColor: 'gold' }).success).toBe(false)
+  expect(grokBotSchema.safeParse({ id: 'lead1', name: 'Ава', role: 'тимлид' }).success).toBe(true)
+})
+
 test('у бота Grok нет полей модели, у своего бота нет grok_id и значения ключа', () => {
   expect(grokBotSchema.safeParse({ id: 'lead1', name: 'Ава', role: 'тимлид', grok_id: 'demo-ava' }).success).toBe(true)
   expect(grokBotSchema.safeParse({
