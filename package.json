@@ -1,6 +1,6 @@
 {
   "name": "tinybots",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Локальный пульт над ботами: брифы и статусы на машине пользователя",
   "type": "module",
