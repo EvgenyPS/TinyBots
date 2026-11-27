@@ -24,6 +24,9 @@ const SKIP_DIRS = new Set([
   'dist',
   'dist-types',
   'coverage',
+  'target',
+  'sea',
+  'gen',
   'data',
   'data_dir',
 ])

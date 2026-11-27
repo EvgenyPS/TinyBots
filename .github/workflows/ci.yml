@@ -105,3 +105,143 @@ jobs:
         run: npx playwright test e2e/perf
         env:
           TINYBOTS_PERF: '1'
+
+  desktop:
+    name: установщик Tauri (windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: навигация окна
+        run: cargo test --manifest-path apps/desktop/nav/Cargo.toml
+      - name: журнал запуска без токена
+        run: cargo test --manifest-path apps/desktop/log/Cargo.toml
+      - name: npm ci
+        run: npm ci
+      - name: sidecar и страница
+        run: node scripts/prepare-desktop.mjs
+      - name: keyring из SEA
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem apps/desktop/src-tauri/binaries/tinybots-server-*.exe | Select-Object -First 1
+          if (-not $exe) { throw 'sidecar не собран' }
+          & $exe.FullName --keyring-selftest 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\keyring-selftest.txt"
+          Write-Host "KEYRING_SELFTEST_EXIT $LASTEXITCODE"
+          $text = Get-Content "$env:RUNNER_TEMP\keyring-selftest.txt" -Raw
+          if ($text -match 'KEYRING_SEA_OK') { Write-Host 'KEYRING_SEA_OK' }
+          if ($text -match 'KEYRING_SEA_FAIL load|KEYRING_LOAD_FAIL|KEYRING_SEA_FAIL missing') {
+            Write-Host 'KEYRING_LOAD_BLOCKED'
+          }
+      - name: установщик NSIS
+        working-directory: apps/desktop
+        run: npx tauri build
+      - name: размер установщика
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem -Recurse apps/desktop/src-tauri/target/release/bundle -Filter *setup*.exe | Select-Object -First 1
+          if (-not $file) { throw 'установщик не найден' }
+          Write-Host "INSTALLER_PATH $($file.FullName)"
+          Write-Host "INSTALLER_BYTES $($file.Length)"
+          $dest = Join-Path $env:RUNNER_TEMP 'tinybots-installed'
+          $proc = Start-Process -FilePath $file.FullName -ArgumentList "/S", "/D=$dest" -Wait -PassThru
+          Write-Host "INSTALL_EXIT $($proc.ExitCode)"
+          if (Test-Path $dest) {
+            $sum = (Get-ChildItem -Recurse -File $dest | Measure-Object Length -Sum).Sum
+            Write-Host "INSTALLED_BYTES $sum"
+            Get-ChildItem $dest | ForEach-Object { Write-Host "INSTALLED_TOP $($_.Name)" }
+          } else {
+            Write-Host 'INSTALLED_DIR_MISSING'
+          }
+      - name: smoke установленного окна
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'tinybots-installed'
+          $exe = Join-Path $dest 'tinybots-desktop.exe'
+          if (-not (Test-Path $exe)) {
+            $exe = Get-ChildItem $dest -Filter *.exe | Where-Object { $_.Name -notmatch 'setup|uninstall|server' } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $exe -or -not (Test-Path $exe)) {
+            Get-ChildItem $dest -Recurse -File | ForEach-Object { Write-Host "INSTALLED_FILE $($_.FullName)" }
+            throw 'tinybots-desktop.exe не найден после установки'
+          }
+          Write-Host "SMOKE_EXE $exe"
+          $busy = netstat -ano -p tcp | Select-String '127.0.0.1:8787'
+          if ($busy) { throw "порт 8787 занят до smoke: $busy" }
+          $proc = Start-Process -FilePath $exe -PassThru
+          Write-Host "SMOKE_PID $($proc.Id)"
+          Start-Sleep -Seconds 20
+          if ($proc.HasExited) { throw "окно завершилось до проверки, код $($proc.ExitCode)" }
+          $server = @(Get-Process -Name 'tinybots-server' -ErrorAction SilentlyContinue)
+          Write-Host "SMOKE_SERVER_COUNT $($server.Count)"
+          if ($server.Count -lt 1) { throw 'через 20 с sidecar не жив' }
+          $opened = $false
+          try {
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8787/api/bots' -TimeoutSec 5
+            Write-Host "SMOKE_STATUS $($resp.StatusCode)"
+          } catch {
+            $code = $null
+            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+            Write-Host "SMOKE_STATUS $code"
+            if ($code -eq 401) { $opened = $true }
+          }
+          if (-not $opened) { throw 'через 20 с порт 8787 не ответил 401 без токена' }
+          foreach ($one in $server) {
+            if ($one.MainWindowHandle -ne [IntPtr]::Zero) {
+              throw "у sidecar pid=$($one.Id) есть окно $($one.MainWindowHandle)"
+            }
+            $kids = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($one.Id)" -ErrorAction SilentlyContinue)
+            foreach ($kid in $kids) {
+              if ($kid.Name -ne 'conhost.exe') { continue }
+              $con = Get-Process -Id $kid.ProcessId -ErrorAction SilentlyContinue
+              if ($con -and $con.MainWindowHandle -ne [IntPtr]::Zero) {
+                throw "у дочернего conhost pid=$($kid.ProcessId) есть окно $($con.MainWindowHandle)"
+              }
+            }
+          }
+          Write-Host 'SMOKE_NO_CONSOLE'
+          $dataRoot = Join-Path $env:APPDATA 'app.tinybots.desktop'
+          $bots = Join-Path $dataRoot 'bots.json'
+          if (-not (Test-Path $bots)) { throw "нет bots.json в $dataRoot" }
+          $botsText = (Get-Content $bots -Raw).Trim()
+          Write-Host "SMOKE_BOTS $botsText"
+          if ($botsText -ne '[]') { throw "в папке данных ожидался пустой список, прочитано: $botsText" }
+          if (Test-Path (Join-Path $dest 'bots.json')) { throw 'bots.json лежит в папке программы' }
+          if (Test-Path (Join-Path $dest 'demo\bots.json')) { throw 'demo/bots.json лежит в папке программы' }
+          $logDir = Join-Path $env:LOCALAPPDATA 'app.tinybots.desktop\logs'
+          if (Test-Path $logDir) {
+            Get-ChildItem $logDir -File | ForEach-Object {
+              Write-Host "SMOKE_LOG $($_.Name) $($_.Length)"
+              Get-Content $_.FullName -Tail 40 | ForEach-Object {
+                $safe = $_ -replace '[0-9a-f]{64}', '[secret]'
+                Write-Host "SMOKE_LOG_LINE $safe"
+              }
+            }
+          } else {
+            Write-Host 'SMOKE_LOG_MISSING'
+          }
+          Get-CimInstance Win32_Process -Filter "ParentProcessId=$($proc.Id)" -ErrorAction SilentlyContinue | ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like 'tinybots*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not $opened) {
+            throw 'за 30 с порт 8787 не ответил 401 без токена. На раннере окно может быть невидимым: sidecar всё равно должен подняться, потому что его запуск не ждёт WebView2.'
+          }
+          $chunks = @(Get-ChildItem $logDir -File -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Raw })
+          $joined = $chunks -join "`n"
+          if ($joined -match '[0-9a-f]{64}') { throw 'в журнале запуска оказалась 64-символьная hex-строка' }
+          if ($joined -match 'таймаут') { throw 'в журнале есть таймаут, сервер не признали готовым' }
+          if ($joined -notmatch 'готовность: stdout') { throw 'в журнале нет готовности по stdout' }
+          if ($joined -match 'повреждён|demo_bots|не прочитан') { throw 'в журнале ошибка чтения ботов' }
+          if ($joined -notmatch [regex]::Escape((Join-Path $env:APPDATA 'app.tinybots.desktop'))) { throw 'в журнале нет папки данных окна' }
+          Write-Host 'SMOKE_OK'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tinybots-windows-setup
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error

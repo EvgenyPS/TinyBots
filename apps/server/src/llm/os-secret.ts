@@ -12,6 +12,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { runningAsSea } from './keyring-native.js'
 import { minimalChildEnv } from '../proc-env.js'
 import { repoRoot } from '../root.js'
 
@@ -30,7 +31,13 @@ const OS_SECRET_MAX_BYTES = 8_192
  */
 export const OS_SECRET_OPTIONS = { linux: { store: 'secret-service' as const } }
 
-const require = createRequire(import.meta.url)
+function bundleRequire(): NodeRequire {
+  const url = import.meta.url
+  if (typeof url === 'string' && url.startsWith('file:')) {
+    return createRequire(url)
+  }
+  return createRequire(process.execPath)
+}
 
 let loaded: object | null | undefined
 
@@ -43,7 +50,7 @@ export function loadOsKeyring(): object | null {
     return loaded
   }
   try {
-    loaded = require('@napi-rs/keyring') as object
+    loaded = bundleRequire()('@napi-rs/keyring') as object
   } catch {
     loaded = null
   }
@@ -70,6 +77,26 @@ export function osEntrySpec(name: string): {
  * check пишет только 1 или 0. Удаления связки здесь нет.
  * Окружение процесса собирается отдельно и остаётся узким (Н102).
  */
+/**
+ * Аргументы дочернего процесса хранилища.
+ * Обычный node исполняет текст через -e. Sidecar — тот же exe с --keyring-worker:
+ * флаг -e собранный файл не понимает, модуль он открывает с диска рядом с собой.
+ */
+export function keyringProcessArgs(name: string, mode: 'read' | 'check' | 'write', replace = false): string[] {
+  if (runningAsSea()) {
+    const args = ['--keyring-worker', '--', name, mode]
+    if (replace) {
+      args.push('replace')
+    }
+    return args
+  }
+  const args = ['--input-type=module', '-e', childReadSource(), '--', name, mode]
+  if (mode === 'write' && replace) {
+    args.push('replace')
+  }
+  return args
+}
+
 export function childReadSource(): string {
   const service = JSON.stringify(OS_SECRET_SERVICE)
   const store = JSON.stringify(OS_SECRET_OPTIONS.linux.store)
@@ -161,7 +188,7 @@ export function readOsSecret(name: string, signal: AbortSignal): Promise<string 
       resolve(null)
       return
     }
-    const child = spawnImpl(process.execPath, ['--input-type=module', '-e', childReadSource(), '--', name, 'read'], {
+    const child = spawnImpl(process.execPath, keyringProcessArgs(name, 'read'), {
       cwd: repoRoot(),
       env: osChildEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -222,11 +249,7 @@ function runChild(mode: 'check' | 'write', name: string, signal: AbortSignal, st
       resolve({ code: 2, stdout: '' })
       return
     }
-    const args = ['--input-type=module', '-e', childReadSource(), '--', name, mode]
-    if (mode === 'write' && replace) {
-      args.push('replace')
-    }
-    const child = spawnImpl(process.execPath, args, {
+    const child = spawnImpl(process.execPath, keyringProcessArgs(name, mode, replace), {
       cwd: repoRoot(),
       env: osChildEnv(),
       stdio: [mode === 'write' ? 'pipe' : 'ignore', 'pipe', 'ignore'],

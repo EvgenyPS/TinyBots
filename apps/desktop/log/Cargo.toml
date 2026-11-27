@@ -1,0 +1,8 @@
+[package]
+name = "tinybots-log"
+version = "0.3.3"
+edition = "2021"
+publish = false
+description = "Журнал запуска окна TinyBots без токена сессии"
+
+[dependencies]

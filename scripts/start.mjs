@@ -43,4 +43,5 @@ const vite = binFromPackage('vite', 'bin/vite.js')
 
 run(tsc, ['-b'], root)
 run(vite, ['build'], path.join(root, 'apps', 'web'))
-run(path.join(root, 'apps', 'server', 'dist', 'main.js'), [], root)
+// --browser только аргументом: переменную окружения sidecar мог бы унаследовать.
+run(path.join(root, 'apps', 'server', 'dist', 'main.js'), ['--browser'], root)

@@ -25,6 +25,10 @@ for (const item of cases) {
       await empty.getByTestId('setup-link').click()
       await expect(page.getByTestId('setup-wizard')).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Настроить' })).toBeVisible()
+      const mark = page.getByTestId('brand-mark')
+      await expect(mark).toHaveAttribute('src', '/icon.svg')
+      const box = await mark.boundingBox()
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(16)
     } finally {
       await server.stop()
     }

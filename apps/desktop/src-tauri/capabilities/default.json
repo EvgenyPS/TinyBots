@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Окно пульта без лишних разрешений",
+  "windows": ["main", "error"],
+  "permissions": ["core:default"]
+}

@@ -7,7 +7,10 @@
 /** Loopback IPv4. Не заменять на все интерфейсы и не читать из конфига. */
 export const BIND_HOST = '127.0.0.1'
 
-const DEFAULT_PORT = 8787
+/** Порт десктопа. Host пускает только эту пару с 127.0.0.1 и localhost. */
+export const DESKTOP_PORT = 8787
+
+const DEFAULT_PORT = DESKTOP_PORT
 
 /**
  * Порт из окружения. Значение в текст ошибки не подставляем:

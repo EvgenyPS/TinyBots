@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TinyBots",
+  "version": "0.3.3",
+  "identifier": "app.tinybots.desktop",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://127.0.0.1:8787",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:8787 http://localhost:8787; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["../icons/app.ico"],
+    "externalBin": ["binaries/tinybots-server"],
+    "resources": {
+      "binaries/keyring.win32-x64-msvc.node": "keyring.win32-x64-msvc.node"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./nsis/hooks.nsh"
+      }
+    }
+  }
+}
