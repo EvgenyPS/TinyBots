@@ -117,6 +117,8 @@ jobs:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@1.90.0
+      - name: навигация окна
+        run: cargo test --manifest-path apps/desktop/nav/Cargo.toml
       - name: npm ci
         run: npm ci
       - name: sidecar и страница

@@ -1,6 +1,8 @@
 /**
  * Окно TinyBots. Поднимает sidecar на 127.0.0.1:8787 и гасит его вместе с окном.
  * Токен сессии живёт в памяти: в argv не кладётся, на диск не пишется, в журнал не попадает.
+ * В страницу он попадает только при origin http://tauri.localhost.
+ * Внешний http(s) открывается в системном браузере, само окно туда не переходит.
  * Если порт уже занят, окно показывает ошибку и к чужому процессу не ходит.
  */
 
@@ -11,6 +13,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use tauri::webview::NewWindowResponse;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const PORT: u16 = 8787;
@@ -35,11 +38,14 @@ fn random_token() -> String {
     out
 }
 
-fn session_script(token: &str) -> Result<String, ()> {
-    let literal = serde_json::to_string(token).map_err(|_| ())?;
-    Ok(format!(
-        "Object.defineProperty(window,\"__TINYBOTS_SESSION__\",{{value:{literal},enumerable:false,configurable:true,writable:false}});"
-    ))
+fn open_external(url: &str) {
+    let Ok(parsed) = tauri::Url::parse(url) else {
+        return;
+    };
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return;
+    }
+    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 
 fn port_free() -> bool {
@@ -249,7 +255,7 @@ fn boot(app: &tauri::AppHandle) -> Result<(), String> {
         return Err(BUSY.to_string());
     }
     let token = random_token();
-    let script = session_script(&token).map_err(|_| FAILED.to_string())?;
+    let script = tinybots_nav::session_script(&token).map_err(|_| FAILED.to_string())?;
     let mut child = spawn_sidecar(&token)?;
     if let Err(message) = wait_until_ours(&mut child, &token) {
         let _ = child.kill();
@@ -269,6 +275,13 @@ fn boot(app: &tauri::AppHandle) -> Result<(), String> {
         .title("TinyBots")
         .inner_size(1440.0, 900.0)
         .initialization_script(&script)
+        .on_navigation(|url| tinybots_nav::allow_navigation(url, open_external))
+        .on_new_window(|url, _features| {
+            if tinybots_nav::navigation_effect(&url) == tinybots_nav::NavEffect::OpenExternal {
+                open_external(url.as_str());
+            }
+            NewWindowResponse::Deny
+        })
         .build();
     if built.is_err() {
         stop_sidecar(app);
@@ -338,6 +351,11 @@ mod job {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .setup(|app| {
             let _ = boot(app.handle());
             Ok(())
@@ -369,11 +387,4 @@ TCP    127.0.0.1:80           0.0.0.0:0              LISTENING       7
         assert_eq!(listening_pid(text, 8787), Some(42));
     }
 
-    #[test]
-    fn token_script_has_no_raw_interpolation_gap() {
-        let token = "ab".repeat(32);
-        let script = super::session_script(&token).unwrap();
-        assert!(script.contains(&token));
-        assert!(!script.contains('\n'));
-    }
 }

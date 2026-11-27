@@ -1,0 +1,13 @@
+[package]
+name = "tinybots-nav"
+version = "0.3.3"
+edition = "2021"
+publish = false
+description = "Куда окну можно перейти и когда выдавать токен сессии"
+
+[dependencies]
+url = "2"
+
+[dev-dependencies]
+glob = "0.3"
+serde_json = "1"
