@@ -45,6 +45,7 @@ fn open_external(url: &str) {
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return;
     }
+    // Свободная функция плагина, не команда окна. У страницы нет opener:allow-open-url.
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 

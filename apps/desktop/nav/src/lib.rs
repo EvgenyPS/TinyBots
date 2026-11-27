@@ -169,32 +169,21 @@ mod tests {
     }
 
     #[test]
-    fn capability_allows_only_http_and_https() {
+    fn page_has_no_opener_permission_and_rust_still_opens_http() {
         let text = include_str!("../../src-tauri/capabilities/default.json");
         let value: serde_json::Value = serde_json::from_str(text).unwrap();
         let permissions = value["permissions"].as_array().unwrap();
-        let opener = permissions
-            .iter()
-            .find(|item| item["identifier"] == "opener:allow-open-url")
-            .expect("capability opener");
-        let patterns: Vec<&str> = opener["allow"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|entry| entry["url"].as_str().unwrap())
-            .collect();
-        assert_eq!(patterns, ["http://**", "https://**"]);
-        assert!(!text.contains("mailto"));
-        assert!(!text.contains("open-path"));
-        assert!(!text.contains("reveal"));
-        assert!(!text.contains("opener:default"));
-        let pr = "https://github.com/example/repo/pull/15";
-        assert!(patterns.iter().any(|pattern| glob::Pattern::new(pattern).unwrap().matches(pr)));
-        for blocked in ["mailto:a@b.c", "file:///etc/passwd", "javascript:alert(1)", "tel:1"] {
-            assert!(
-                patterns.iter().all(|pattern| !glob::Pattern::new(pattern).unwrap().matches(blocked)),
-                "{blocked}"
-            );
-        }
+        assert_eq!(permissions.len(), 1);
+        assert_eq!(permissions[0], "core:default");
+        assert!(!text.contains("opener"));
+        assert!(!text.contains("http://**"));
+        assert!(!text.contains("https://**"));
+        let window = include_str!("../../src-tauri/src/lib.rs");
+        assert!(window.contains("tauri_plugin_opener::open_url"));
+        assert!(window.contains(".on_navigation(|url| tinybots_nav::allow_navigation(url, open_external))"));
+        let url = Url::parse("https://github.com/example/repo/pull/15").unwrap();
+        let mut opened = None;
+        assert!(!allow_navigation(&url, |value| opened = Some(value.to_string())));
+        assert_eq!(opened.as_deref(), Some("https://github.com/example/repo/pull/15"));
     }
 }

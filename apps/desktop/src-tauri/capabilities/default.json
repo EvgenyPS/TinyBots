@@ -2,11 +2,5 @@
   "identifier": "default",
   "description": "Окно пульта без лишних разрешений",
   "windows": ["main", "error"],
-  "permissions": [
-    "core:default",
-    {
-      "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "http://**" }, { "url": "https://**" }]
-    }
-  ]
+  "permissions": ["core:default"]
 }

@@ -64,5 +64,11 @@ describe('токен окна', () => {
     )
     expect(windowSource.includes('tauri_plugin_opener::open_url')).toBe(true)
     expect(windowSource.includes('NewWindowResponse::Deny')).toBe(true)
+    const capability = readFileSync(
+      fileURLToPath(new URL('../../../apps/desktop/src-tauri/capabilities/default.json', import.meta.url)),
+      'utf8',
+    )
+    expect(capability.includes('opener')).toBe(false)
+    expect(capability.includes('http://**')).toBe(false)
   })
 })

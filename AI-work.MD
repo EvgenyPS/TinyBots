@@ -13,7 +13,7 @@ TinyBots — локальный пульт над ботами. Репозито
 - Окно само запускает sidecar и гасит его при закрытии. Занятый 8787 — отдельная страница, без подключения к чужому процессу.
 - Защита: только `127.0.0.1`; Origin `http://tauri.localhost` ровно один; Host десктопа `127.0.0.1:8787` и `localhost:8787`; токен 32 байта на запуск, в памяти, `timingSafeEqual`; `/api/*` без токена — 401; `npm start` получает `--browser` аргументом. Ответы API не отдают значение ключа.
 - CI: job `desktop` на `windows-latest` собирает NSIS и пишет размер в лог. Прежние проверки на месте.
-- Токен в окно попадает только при `location.origin === "http://tauri.localhost"`. Внешний `http`/`https` отменяется и открывается системным браузером (`tauri-plugin-opener`, capability только на эти схемы).
+- Токен в окно попадает только при `location.origin === "http://tauri.localhost"`. Внешний `http`/`https` отменяется и открывается из Rust через `tauri-plugin-opener`. Странице это право не выдано.
 - SEA собран как CommonJS: у Node встроенный ESM в single executable не стартует (`embedderRunCjs`). `import.meta.url` в этом бандле пустой, `createRequire` берёт `process.execPath`. На Linux модуль keyring открывается, запись в связку не проходит без DBus — та же ошибка, что у обычного `node`.
 
 ## Что в этом дереве
