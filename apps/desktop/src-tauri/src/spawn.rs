@@ -370,7 +370,7 @@ unsafe fn spawn_restricted(
     }
 
     unsafe fn make_pipe() -> Result<Ends, String> {
-        let mut sa = SECURITY_ATTRIBUTES {
+        let sa = SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: std::ptr::null_mut(),
             bInheritHandle: 1,

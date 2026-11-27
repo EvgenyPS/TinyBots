@@ -147,7 +147,7 @@ fn note_failure(app: &tauri::AppHandle, token: &str, reason: &str, log_path: &st
     };
     if let Ok(mut guard) = note.text.lock() {
         *guard = Some((tinybots_log::redact(reason, token), log_path.to_string()));
-    }
+    };
 }
 
 fn show_result(app: &tauri::AppHandle, token: &str, end: LaunchEnd, log_path: &str) {
@@ -165,7 +165,7 @@ fn show_result(app: &tauri::AppHandle, token: &str, end: LaunchEnd, log_path: &s
     };
     let target = app_page(page);
     let app = app.clone();
-    let _ = app.run_on_main_thread(move || {
+    let _ = app.clone().run_on_main_thread(move || {
         if app.try_state::<Sidecar>().is_some_and(|state| state.stop.load(Ordering::SeqCst)) {
             return;
         }
