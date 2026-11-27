@@ -190,6 +190,28 @@ jobs:
             if ($code -eq 401) { $opened = $true }
           }
           if (-not $opened) { throw 'через 20 с порт 8787 не ответил 401 без токена' }
+          foreach ($one in $server) {
+            if ($one.MainWindowHandle -ne [IntPtr]::Zero) {
+              throw "у sidecar pid=$($one.Id) есть окно $($one.MainWindowHandle)"
+            }
+            $kids = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($one.Id)" -ErrorAction SilentlyContinue)
+            foreach ($kid in $kids) {
+              if ($kid.Name -ne 'conhost.exe') { continue }
+              $con = Get-Process -Id $kid.ProcessId -ErrorAction SilentlyContinue
+              if ($con -and $con.MainWindowHandle -ne [IntPtr]::Zero) {
+                throw "у дочернего conhost pid=$($kid.ProcessId) есть окно $($con.MainWindowHandle)"
+              }
+            }
+          }
+          Write-Host 'SMOKE_NO_CONSOLE'
+          $dataRoot = Join-Path $env:APPDATA 'app.tinybots.desktop'
+          $bots = Join-Path $dataRoot 'bots.json'
+          if (-not (Test-Path $bots)) { throw "нет bots.json в $dataRoot" }
+          $botsText = (Get-Content $bots -Raw).Trim()
+          Write-Host "SMOKE_BOTS $botsText"
+          if ($botsText -ne '[]') { throw "в папке данных ожидался пустой список, прочитано: $botsText" }
+          if (Test-Path (Join-Path $dest 'bots.json')) { throw 'bots.json лежит в папке программы' }
+          if (Test-Path (Join-Path $dest 'demo\bots.json')) { throw 'demo/bots.json лежит в папке программы' }
           $logDir = Join-Path $env:LOCALAPPDATA 'app.tinybots.desktop\logs'
           if (Test-Path $logDir) {
             Get-ChildItem $logDir -File | ForEach-Object {
@@ -214,7 +236,9 @@ jobs:
           $joined = $chunks -join "`n"
           if ($joined -match '[0-9a-f]{64}') { throw 'в журнале запуска оказалась 64-символьная hex-строка' }
           if ($joined -match 'таймаут') { throw 'в журнале есть таймаут, сервер не признали готовым' }
-          if ($joined -notmatch 'готовность:') { throw 'в журнале нет записи о готовности' }
+          if ($joined -notmatch 'готовность: stdout') { throw 'в журнале нет готовности по stdout' }
+          if ($joined -match 'повреждён|demo_bots|не прочитан') { throw 'в журнале ошибка чтения ботов' }
+          if ($joined -notmatch [regex]::Escape((Join-Path $env:APPDATA 'app.tinybots.desktop'))) { throw 'в журнале нет папки данных окна' }
           Write-Host 'SMOKE_OK'
       - uses: actions/upload-artifact@v4
         with:

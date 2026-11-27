@@ -47,6 +47,7 @@ import { getSecrets, postSecret } from './secrets/api.js'
 import type { ConfigFailure } from './config/load.js'
 import { recoverProposals } from './proposals/engine.js'
 import { loadConfigAt, resolveDataDir, selectConfigRequest } from './config/load.js'
+import { loadDesktopBots } from './desktop-data.js'
 import { repoRoot } from './root.js'
 
 export type RunningServer = {
@@ -67,6 +68,11 @@ export type AppOptions = LaunchOptions & {
   sessionToken?: string
   /** Host только 127.0.0.1:8787 и localhost:8787. Включает sidecar. */
   desktopHost?: boolean
+  /**
+   * Каталог данных окна. Задаёт оболочка аргументом --data-dir.
+   * bots.json и прочие файлы конфига живут здесь, не в папке программы.
+   */
+  dataDir?: string
 }
 
 function hostFromContext(c: { req: { header: (name: string) => string | undefined }; env: HttpBindings }): string | undefined {
@@ -165,11 +171,12 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     logSafe(`http: ${name}`)
     return c.json(httpErrorBody(), 500)
   })
-  const root = repoRoot()
+  const root = options?.dataDir ?? repoRoot()
   const csrf = newCsrfToken()
   const boundPort = options?.boundPort ?? { current: 0 }
   const setupQueue = queueWrites()
   const botsFile = path.join(root, 'demo', 'bots.json')
+  const desktopData = options?.dataDir
   const webDist = path.join(root, 'apps', 'web', 'dist')
   const indexFile = path.join(webDist, 'index.html')
   const hasWeb = existsSync(indexFile)
@@ -244,6 +251,13 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
   app.get('/health', (c) => c.json({ ok: true }))
 
   app.get('/api/bots', async (c) => {
+    if (desktopData !== undefined) {
+      const loaded = loadDesktopBots(desktopData)
+      if (loaded.status === 500) {
+        console.error(loaded.log)
+      }
+      return c.json(loaded.body, loaded.status)
+    }
     try {
       const raw = await readFile(botsFile, 'utf8')
       const data: unknown = JSON.parse(raw) as unknown
@@ -521,7 +535,7 @@ function asNodeServer(server: ServerType): Server {
  * configPath и now нужны тестам: подмена конфига и часов без перезапуска процесса-родителя.
  */
 export async function startServer(options?: { port?: number } & AppOptions): Promise<RunningServer> {
-  const root = repoRoot()
+  const root = options?.dataDir ?? repoRoot()
   try {
     const loaded = loadConfigAt(root, selectConfigRequest(root, options?.configPath))
     if (loaded.ok) {

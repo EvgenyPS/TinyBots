@@ -71,4 +71,19 @@ describe('токен окна', () => {
     expect(capability.includes('opener')).toBe(false)
     expect(capability.includes('http://**')).toBe(false)
   })
+
+  test('без строки готовности токен на порт не уходит', () => {
+    const spawn = readFileSync(
+      fileURLToPath(new URL('../../../apps/desktop/src-tauri/src/spawn.rs', import.meta.url)),
+      'utf8',
+    )
+    expect(windowSource.includes('read_status(Some')).toBe(false)
+    expect(windowSource.includes('X-Tinybots-Session')).toBe(false)
+    expect(windowSource.includes('готовность: stdout')).toBe(true)
+    expect(windowSource.includes('готовность: health')).toBe(false)
+    expect(spawn.includes('pub fn read_status()')).toBe(true)
+    expect(spawn.includes('request_before_ready_line')).toBe(true)
+    const token = 'ab'.repeat(32)
+    expect(spawn.includes(token)).toBe(false)
+  })
 })

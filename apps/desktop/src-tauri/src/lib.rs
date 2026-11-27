@@ -188,9 +188,30 @@ fn log_line(log: &Mutex<tinybots_log::LaunchLog>, text: &str) {
     }
 }
 
-fn log_ready(log: &Mutex<tinybots_log::LaunchLog>, kind: &str, started: Instant) {
+fn log_ready(log: &Mutex<tinybots_log::LaunchLog>, started: Instant) {
     let ms = started.elapsed().as_millis();
-    log_line(log, &format!("готовность: {kind} {ms} мс"));
+    log_line(log, &format!("готовность: stdout {ms} мс"));
+}
+
+/// Каталог данных Tauri: на Windows это %APPDATA%\app.tinybots.desktop.
+/// Установщик эту папку не перезаписывает.
+fn user_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
+    let dir = app.path().app_data_dir().unwrap_or_else(|_| {
+        let base = std::env::var_os("APPDATA")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| {
+                    let mut path = std::path::PathBuf::from(home);
+                    path.push(".local");
+                    path.push("share");
+                    path
+                })
+            })
+            .unwrap_or_else(std::env::temp_dir);
+        base.join("app.tinybots.desktop")
+    });
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 fn run_sidecar(
@@ -206,7 +227,8 @@ fn run_sidecar(
         return LaunchEnd::Failed("Sidecar не найден рядом с окном".into());
     };
     log_line(log, &format!("sidecar: {}", program.display()));
-    let cwd = spawn::sidecar_cwd();
+    let cwd = user_data_dir(app);
+    log_line(log, &format!("данные: {}", cwd.display()));
     log_line(log, &format!("cwd: {}", cwd.display()));
 
     let abandon = Arc::new(AtomicBool::new(false));
@@ -294,18 +316,13 @@ fn run_sidecar(
             }
             return LaunchEnd::Failed(format!("Sidecar завершился с кодом {code}"));
         }
-        // Строка stdout — наш процесс уже слушает. 200 от /api/bots не требуется:
-        // в установленной папке файла демо нет, и с токеном приходит 500.
+        // Готовность — только строка нашего stdout. Токен на порт не шлём:
+        // до строки слушателем может быть чужой процесс.
         if ready.load(Ordering::SeqCst) {
-            log_ready(log, "stdout", started);
+            log_ready(log, started);
             return LaunchEnd::Ready;
         }
-        let with_token = spawn::read_status(Some(token));
-        let without = spawn::read_status(None);
-        if tinybots_log::health_accepted(with_token, without) && !spawn::other_process_owns_port(proc.pid()) {
-            log_ready(log, "health", started);
-            return LaunchEnd::Ready;
-        }
+        let without = spawn::read_status();
         if without == Some(200) {
             proc.kill();
             log_line(log, "порт занят чужим процессом");

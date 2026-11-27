@@ -212,8 +212,18 @@ fn sidecar_name() -> String {
     format!("tinybots-server-{triple}{}", std::env::consts::EXE_SUFFIX)
 }
 
-pub fn command_line(path: &Path) -> String {
-    format!("\"{}\" --session-stdin", path.to_string_lossy().replace('"', ""))
+fn quote_arg(path: &Path) -> String {
+    format!("\"{}\"", path.to_string_lossy().replace('"', ""))
+}
+
+/// Аргументы sidecar. Токена здесь нет: он уходит в stdin.
+/// `--data-dir` — каталог данных окна, не папка программы.
+pub fn command_line(path: &Path, data_dir: &Path) -> String {
+    format!(
+        "{} --session-stdin --data-dir {}",
+        quote_arg(path),
+        quote_arg(data_dir),
+    )
 }
 
 pub fn port_free() -> bool {
@@ -226,18 +236,13 @@ pub fn port_free() -> bool {
     }
 }
 
-pub fn read_status(token: Option<&str>) -> Option<u16> {
+/// Опрос порта без токена. Строка готовности ещё не пришла — сессию на порт не кладём.
+pub fn read_status() -> Option<u16> {
     let address = "127.0.0.1:8787".parse().ok()?;
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(400)).ok()?;
     stream.set_read_timeout(Some(Duration::from_millis(800))).ok()?;
     stream.set_write_timeout(Some(Duration::from_millis(800))).ok()?;
-    let mut request = String::from("GET /api/bots HTTP/1.1\r\nHost: 127.0.0.1:8787\r\nConnection: close\r\n");
-    if let Some(value) = token {
-        request.push_str("X-Tinybots-Session: ");
-        request.push_str(value);
-        request.push_str("\r\n");
-    }
-    request.push_str("\r\n");
+    let request = tinybots_log::request_before_ready_line("");
     stream.write_all(request.as_bytes()).ok()?;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 1024];
@@ -257,9 +262,6 @@ pub fn read_status(token: Option<&str>) -> Option<u16> {
         }
     }
     let text = String::from_utf8_lossy(&buf);
-    if token.is_some_and(|value| !value.is_empty() && text.contains(value)) {
-        return None;
-    }
     text.split_whitespace().nth(1)?.parse().ok()
 }
 
@@ -497,7 +499,7 @@ unsafe fn spawn_restricted(
     info.lpAttributeList = list.ptr as _;
 
     let application = wide(program.as_os_str());
-    let mut cmdline = wide(std::ffi::OsStr::new(&command_line(program)));
+    let mut cmdline = wide(std::ffi::OsStr::new(&command_line(program, cwd)));
     let directory = wide(cwd.as_os_str());
     let mut process: PROCESS_INFORMATION = std::mem::zeroed();
     let created = CreateProcessW(
@@ -506,6 +508,7 @@ unsafe fn spawn_restricted(
         std::ptr::null(),
         std::ptr::null(),
         1,
+        // 0x08000000: процесс консольной подсистемы без окна. stdin и stdout — трубы.
         CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
         std::ptr::null(),
         directory.as_ptr(),
@@ -557,6 +560,8 @@ fn start_os(
     use std::process::Stdio;
     let mut child = Command::new(program)
         .arg("--session-stdin")
+        .arg("--data-dir")
+        .arg(cwd)
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -587,8 +592,14 @@ mod tests {
 
     #[test]
     fn command_line_has_session_flag_and_no_token() {
-        let line = command_line(Path::new(r"C:\Program Files\tinybots-server.exe"));
-        assert_eq!(line, "\"C:\\Program Files\\tinybots-server.exe\" --session-stdin");
+        let line = command_line(
+            Path::new(r"C:\Program Files\tinybots-server.exe"),
+            Path::new(r"C:\Users\user\AppData\Roaming\app.tinybots.desktop"),
+        );
+        assert_eq!(
+            line,
+            "\"C:\\Program Files\\tinybots-server.exe\" --session-stdin --data-dir \"C:\\Users\\user\\AppData\\Roaming\\app.tinybots.desktop\""
+        );
         assert!(!line.to_ascii_lowercase().contains("token"));
     }
 }

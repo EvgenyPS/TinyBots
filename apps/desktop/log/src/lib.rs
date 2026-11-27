@@ -14,8 +14,16 @@ const PLACEHOLDER: &str = "[secret]";
 /// Строка, которую sidecar печатает после успешного listen.
 pub const READY_LINE: &str = "TinyBots: http://127.0.0.1:8787";
 
+/// Запрос на 8787, пока нет строки готовности нашего процесса.
+/// Токена в нём нет: чужой слушатель не должен его получить.
+/// После строки оболочка порт больше не опрашивает.
+pub fn request_before_ready_line(token: &str) -> &'static str {
+    let _ = token;
+    "GET /api/bots HTTP/1.1\r\nHost: 127.0.0.1:8787\r\nConnection: close\r\n\r\n"
+}
+
 /// Сервер принял сессию: без токена 401, с токеном не отказ.
-/// `/api/bots` без файла демо отвечает 500, это всё равно наш процесс.
+/// Оболочка это для готовности не использует: токен на порт до строки не уходит.
 pub fn health_accepted(with_token: Option<u16>, without: Option<u16>) -> bool {
     let Some(status) = with_token else {
         return false;
@@ -298,5 +306,17 @@ mod tests {
         assert!(!health_accepted(Some(401), Some(401)));
         assert!(!health_accepted(Some(200), Some(200)));
         assert!(!health_accepted(None, Some(401)));
+    }
+
+    #[test]
+    fn token_is_not_sent_before_the_ready_line() {
+        let token = "ab".repeat(32);
+        let request = request_before_ready_line(&token);
+        assert!(!line_ready(""));
+        assert!(!request.contains(&token), "{request}");
+        assert!(!request.to_ascii_lowercase().contains("x-tinybots-session"), "{request}");
+        assert!(!request.to_ascii_lowercase().contains("authorization"), "{request}");
+        assert!(request.contains("GET /api/bots"));
+        assert!(request.contains("Host: 127.0.0.1:8787"));
     }
 }

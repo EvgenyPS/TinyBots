@@ -11,6 +11,7 @@ import { BIND_HOST, DESKTOP_PORT, resolvePort } from './bind.js'
 import { loadDotEnv } from './env.js'
 import { runKeyringSelftest, runKeyringWorker, runningAsSea } from './llm/keyring-native.js'
 import { openBrowser } from './open-browser.js'
+import { desktopDataDir, ensureBotsFile } from './desktop-data.js'
 import { repoRoot } from './root.js'
 import { planLaunch, SESSION_TOKEN_BYTES, tokenFromLine } from './session.js'
 import { startServer } from './server.js'
@@ -26,15 +27,24 @@ async function main(): Promise<void> {
     process.exit(await runKeyringSelftest())
   }
 
-  const plan = planLaunch(process.argv.slice(2), runningAsSea(), process.env)
+  const args = process.argv.slice(2)
+  const plan = planLaunch(args, runningAsSea(), process.env)
   if (plan.kind === 'refuse') {
     console.error(plan.message)
     process.exit(1)
   }
 
-  const root = repoRoot()
-  process.chdir(root)
-  loadDotEnv(path.join(root, '.env'))
+  const dataDir = desktopDataDir(plan.kind, args)
+  if (dataDir !== null) {
+    const bots = ensureBotsFile(dataDir)
+    if (bots === 'invalid') {
+      console.error('bots.json повреждён, файл не перезаписан')
+    }
+    process.chdir(dataDir)
+  } else {
+    process.chdir(repoRoot())
+  }
+  loadDotEnv(path.join(process.cwd(), '.env'))
 
   const requestedHost = process.env.HOST
   if (
@@ -58,6 +68,7 @@ async function main(): Promise<void> {
         port: DESKTOP_PORT,
         sessionToken: token,
         desktopHost: true,
+        dataDir: dataDir ?? undefined,
       })
       console.log(`TinyBots: http://${BIND_HOST}:${running.port}`)
     } catch (error) {
