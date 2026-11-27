@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { FileText, Info, Lock, Moon, Sparkles, Sun, TriangleAlert } from 'lucide-react'
+import { FileText, Info, Lock, Moon, Sun, TriangleAlert } from 'lucide-react'
 import { followPointer } from '../avatars/tinybots-avatar.js'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -245,7 +245,7 @@ export function SetupWizard() {
       <div className={theme === 'dark' ? 'tb-wizard dark' : 'tb-wizard'} onKeyDown={onWizardKey}>
         <header className="flex h-16 items-center justify-between gap-3 px-6 max-[719px]:px-3">
           <div className="flex items-center gap-2.5 text-sm">
-            <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground"><Sparkles width={16} height={16} /></span>
+            <img src="/icon.svg" alt="" width={28} height={28} className="size-7 shrink-0" data-testid="brand-mark" />
             <b>TinyBots</b>
             <span className="text-border">/</span>
             <h1 className="text-sm font-medium text-muted-foreground">Настроить</h1>

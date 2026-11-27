@@ -250,6 +250,11 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
 
   app.get('/health', (c) => c.json({ ok: true }))
 
+  // Знак «Вожак» лежит в репозитории, не в каталоге данных окна.
+  // Иначе при --data-dir путь apps/web/dist указывает мимо файлов и отдача даёт 404.
+  app.get('/favicon.ico', (c) => sendBrand(c, 'favicon.ico'))
+  app.get('/icon.svg', (c) => sendBrand(c, 'icon.svg'))
+
   app.get('/api/bots', async (c) => {
     if (desktopData !== undefined) {
       const loaded = loadDesktopBots(desktopData)
@@ -524,6 +529,34 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
   })
 
   return app
+}
+
+const BRAND_TYPE: Record<'favicon.ico' | 'icon.svg', string> = {
+  'favicon.ico': 'image/x-icon',
+  'icon.svg': 'image/svg+xml',
+}
+
+/** Файл знака из public или из сборки. Каталог данных окна сюда не входит. */
+function brandPath(name: 'favicon.ico' | 'icon.svg'): string | null {
+  for (const folder of ['apps/web/public', 'apps/web/dist']) {
+    const file = path.join(repoRoot(), folder, name)
+    if (existsSync(file)) {
+      return file
+    }
+  }
+  return null
+}
+
+async function sendBrand(
+  c: { header: (name: string, value: string) => void; body: (data: Uint8Array | null, status?: number) => Response },
+  name: 'favicon.ico' | 'icon.svg',
+): Promise<Response> {
+  const file = brandPath(name)
+  if (file === null) {
+    return c.body(null, 404)
+  }
+  c.header('Content-Type', BRAND_TYPE[name])
+  return c.body(new Uint8Array(await readFile(file)))
 }
 
 function asNodeServer(server: ServerType): Server {
