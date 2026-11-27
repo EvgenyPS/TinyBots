@@ -11,6 +11,59 @@ use std::path::{Path, PathBuf};
 
 const PLACEHOLDER: &str = "[secret]";
 
+/// Строка, которую sidecar печатает после успешного listen.
+pub const READY_LINE: &str = "TinyBots: http://127.0.0.1:8787";
+
+/// Сервер принял сессию: без токена 401, с токеном не отказ.
+/// `/api/bots` без файла демо отвечает 500, это всё равно наш процесс.
+pub fn health_accepted(with_token: Option<u16>, without: Option<u16>) -> bool {
+    let Some(status) = with_token else {
+        return false;
+    };
+    if status == 401 || status == 403 {
+        return false;
+    }
+    without == Some(401)
+}
+
+pub fn line_ready(text: &str) -> bool {
+    text.split(['\n', '\r']).any(|line| line.trim() == READY_LINE)
+}
+
+/// Ловит строку готовности, даже если она пришла двумя кусками.
+#[derive(Debug, Default)]
+pub struct ReadyWatch {
+    pending: String,
+    seen: bool,
+}
+
+impl ReadyWatch {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn seen(&self) -> bool {
+        self.seen
+    }
+
+    pub fn push(&mut self, chunk: &str) -> bool {
+        if self.seen {
+            return true;
+        }
+        self.pending.push_str(chunk);
+        if line_ready(&self.pending) {
+            self.seen = true;
+            return true;
+        }
+        let keep = READY_LINE.len() + 1;
+        if self.pending.len() > keep {
+            let split = floor_char(&self.pending, self.pending.len() - keep);
+            self.pending.drain(..split);
+        }
+        false
+    }
+}
+
 pub fn log_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("HOME"))
@@ -226,5 +279,24 @@ mod tests {
         assert!(!both.contains(&secret), "{both}");
         assert!(both.contains(PLACEHOLDER));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ready_line_is_exact_and_survives_a_split() {
+        assert!(line_ready("TinyBots: http://127.0.0.1:8787\n"));
+        assert!(line_ready("шум\r\nTinyBots: http://127.0.0.1:8787\r\n"));
+        assert!(!line_ready("TinyBots: http://127.0.0.1:87870\n"));
+        assert!(!line_ready("TinyBots: http://127.0.0.1:80\n"));
+        assert!(!line_ready("TinyBots: http://localhost:8787\n"));
+        let mut watch = ReadyWatch::new();
+        let line = READY_LINE;
+        assert!(!watch.push(&line[..20]));
+        assert!(watch.push(&line[20..]));
+        assert!(watch.seen());
+        assert!(health_accepted(Some(500), Some(401)));
+        assert!(health_accepted(Some(200), Some(401)));
+        assert!(!health_accepted(Some(401), Some(401)));
+        assert!(!health_accepted(Some(200), Some(200)));
+        assert!(!health_accepted(None, Some(401)));
     }
 }

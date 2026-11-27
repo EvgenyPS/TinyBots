@@ -303,8 +303,9 @@ pub fn start(
     log: Arc<Mutex<LaunchLog>>,
     stop: &AtomicBool,
     abandon: &AtomicBool,
+    ready: Arc<AtomicBool>,
 ) -> Result<Arc<OwnedProc>, String> {
-    let proc = start_os(program, cwd, token, log, stop, abandon)?;
+    let proc = start_os(program, cwd, token, log, stop, abandon, ready)?;
     if stop.load(Ordering::SeqCst) || abandon.load(Ordering::SeqCst) {
         proc.kill();
         return Err("запуск sidecar прерван".into());
@@ -312,14 +313,19 @@ pub fn start(
     Ok(proc)
 }
 
-fn pump(mut file: impl Read, log: Arc<Mutex<LaunchLog>>, stream: &'static str) {
+fn pump(mut file: impl Read, log: Arc<Mutex<LaunchLog>>, stream: &'static str, ready: Arc<AtomicBool>) {
+    let mut watch = tinybots_log::ReadyWatch::new();
     let mut buf = [0u8; 4096];
     loop {
         match file.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(size) => {
+                let text = String::from_utf8_lossy(&buf[..size]);
+                if stream == "stdout" && watch.push(&text) {
+                    ready.store(true, Ordering::SeqCst);
+                }
                 if let Ok(mut guard) = log.lock() {
-                    guard.push_stdio(stream, &String::from_utf8_lossy(&buf[..size]));
+                    guard.push_stdio(stream, &text);
                 }
             }
         }
@@ -342,10 +348,11 @@ fn start_os(
     log: Arc<Mutex<LaunchLog>>,
     _stop: &AtomicBool,
     _abandon: &AtomicBool,
+    ready: Arc<AtomicBool>,
 ) -> Result<Arc<OwnedProc>, String> {
     // stop/abandon проверяет вызывающий start() после возврата: так процесс не остаётся сиротой.
     let _ = (_stop, _abandon);
-    unsafe { spawn_restricted(program, cwd, token, log) }
+    unsafe { spawn_restricted(program, cwd, token, log, ready) }
 }
 
 #[cfg(windows)]
@@ -354,6 +361,7 @@ unsafe fn spawn_restricted(
     cwd: &Path,
     token: &str,
     log: Arc<Mutex<LaunchLog>>,
+    ready: Arc<AtomicBool>,
 ) -> Result<Arc<OwnedProc>, String> {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
@@ -523,8 +531,10 @@ unsafe fn spawn_restricted(
     let errors = std::fs::File::from(OwnedHandle::from_raw_handle(parent_err as _));
     let log_out = Arc::clone(&log);
     let log_err = Arc::clone(&log);
-    std::thread::spawn(move || pump(output, log_out, "stdout"));
-    std::thread::spawn(move || pump(errors, log_err, "stderr"));
+    let ready_out = Arc::clone(&ready);
+    let ready_err = Arc::clone(&ready);
+    std::thread::spawn(move || pump(output, log_out, "stdout", ready_out));
+    std::thread::spawn(move || pump(errors, log_err, "stderr", ready_err));
     write_token(input, token.to_string());
 
     let handle = OwnedHandle::from_raw_handle(process.hProcess as _);
@@ -542,6 +552,7 @@ fn start_os(
     log: Arc<Mutex<LaunchLog>>,
     _stop: &AtomicBool,
     _abandon: &AtomicBool,
+    ready: Arc<AtomicBool>,
 ) -> Result<Arc<OwnedProc>, String> {
     use std::process::Stdio;
     let mut child = Command::new(program)
@@ -558,8 +569,10 @@ fn start_os(
     let errors = child.stderr.take().ok_or_else(|| "Не удалось запустить sidecar".to_string())?;
     let log_out = Arc::clone(&log);
     let log_err = Arc::clone(&log);
-    std::thread::spawn(move || pump(output, log_out, "stdout"));
-    std::thread::spawn(move || pump(errors, log_err, "stderr"));
+    let ready_out = Arc::clone(&ready);
+    let ready_err = Arc::clone(&ready);
+    std::thread::spawn(move || pump(output, log_out, "stdout", ready_out));
+    std::thread::spawn(move || pump(errors, log_err, "stderr", ready_err));
     write_token(input, token.to_string());
     Ok(Arc::new(OwnedProc {
         pid,

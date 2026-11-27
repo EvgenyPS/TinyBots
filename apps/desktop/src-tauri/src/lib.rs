@@ -150,19 +150,7 @@ fn note_failure(app: &tauri::AppHandle, token: &str, reason: &str, log_path: &st
     };
 }
 
-fn show_result(app: &tauri::AppHandle, token: &str, end: LaunchEnd, log_path: &str) {
-    if matches!(end, LaunchEnd::Stopped) {
-        return;
-    }
-    let page = match &end {
-        LaunchEnd::Ready => "index.html",
-        LaunchEnd::Busy => "port-busy.html",
-        LaunchEnd::Failed(reason) => {
-            note_failure(app, token, reason, log_path);
-            "server-failed.html"
-        }
-        LaunchEnd::Stopped => return,
-    };
+fn navigate(app: &tauri::AppHandle, page: &str) {
     let target = app_page(page);
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
@@ -178,13 +166,40 @@ fn show_result(app: &tauri::AppHandle, token: &str, end: LaunchEnd, log_path: &s
     });
 }
 
+fn show_result(app: &tauri::AppHandle, token: &str, end: LaunchEnd, log_path: &str) {
+    if matches!(end, LaunchEnd::Stopped) {
+        return;
+    }
+    let page = match &end {
+        LaunchEnd::Ready => "index.html",
+        LaunchEnd::Busy => "port-busy.html",
+        LaunchEnd::Failed(reason) => {
+            note_failure(app, token, reason, log_path);
+            "server-failed.html"
+        }
+        LaunchEnd::Stopped => return,
+    };
+    navigate(app, page);
+}
+
 fn log_line(log: &Mutex<tinybots_log::LaunchLog>, text: &str) {
     if let Ok(mut guard) = log.lock() {
         guard.line(text);
     }
 }
 
-fn run_sidecar(app: &tauri::AppHandle, token: &str, stop: &Arc<AtomicBool>, log: &Arc<Mutex<tinybots_log::LaunchLog>>) -> LaunchEnd {
+fn log_ready(log: &Mutex<tinybots_log::LaunchLog>, kind: &str, started: Instant) {
+    let ms = started.elapsed().as_millis();
+    log_line(log, &format!("готовность: {kind} {ms} мс"));
+}
+
+fn run_sidecar(
+    app: &tauri::AppHandle,
+    token: &str,
+    stop: &Arc<AtomicBool>,
+    log: &Arc<Mutex<tinybots_log::LaunchLog>>,
+    log_path: &str,
+) -> LaunchEnd {
     let Some(program) = spawn::program_path() else {
         log_line(log, "sidecar не найден рядом с окном");
         log_line(log, &format!("рядом: {}", spawn::sibling_names()));
@@ -195,15 +210,25 @@ fn run_sidecar(app: &tauri::AppHandle, token: &str, stop: &Arc<AtomicBool>, log:
     log_line(log, &format!("cwd: {}", cwd.display()));
 
     let abandon = Arc::new(AtomicBool::new(false));
+    let ready = Arc::new(AtomicBool::new(false));
     let (tx, rx) = std::sync::mpsc::channel();
     let token_bg = token.to_string();
     let log_bg = Arc::clone(log);
     let stop_bg = Arc::clone(stop);
     let abandon_bg = Arc::clone(&abandon);
+    let ready_bg = Arc::clone(&ready);
     let program_bg = program.clone();
     let cwd_bg = cwd.clone();
     std::thread::spawn(move || {
-        let result = spawn::start(&program_bg, &cwd_bg, &token_bg, log_bg, &stop_bg, &abandon_bg);
+        let result = spawn::start(
+            &program_bg,
+            &cwd_bg,
+            &token_bg,
+            log_bg,
+            &stop_bg,
+            &abandon_bg,
+            ready_bg,
+        );
         let _ = tx.send(result);
     });
 
@@ -253,17 +278,12 @@ fn run_sidecar(app: &tauri::AppHandle, token: &str, stop: &Arc<AtomicBool>, log:
         }
     }
 
+    let mut noted_timeout = false;
     loop {
         if stop.load(Ordering::SeqCst) {
             proc.kill();
             log_line(log, "остановлено закрытием окна");
             return LaunchEnd::Stopped;
-        }
-        if started.elapsed() >= WAIT_LIMIT {
-            proc.kill();
-            let _ = std::thread::sleep(Duration::from_millis(150));
-            log_line(log, "таймаут 15 с");
-            return LaunchEnd::Failed("Сервер не ответил за 15 с".into());
         }
         if let Some(code) = proc.try_wait() {
             let _ = std::thread::sleep(Duration::from_millis(150));
@@ -274,21 +294,28 @@ fn run_sidecar(app: &tauri::AppHandle, token: &str, stop: &Arc<AtomicBool>, log:
             }
             return LaunchEnd::Failed(format!("Sidecar завершился с кодом {code}"));
         }
+        // Строка stdout — наш процесс уже слушает. 200 от /api/bots не требуется:
+        // в установленной папке файла демо нет, и с токеном приходит 500.
+        if ready.load(Ordering::SeqCst) {
+            log_ready(log, "stdout", started);
+            return LaunchEnd::Ready;
+        }
         let with_token = spawn::read_status(Some(token));
         let without = spawn::read_status(None);
-        if with_token == Some(200) && without == Some(401) {
-            if spawn::other_process_owns_port(proc.pid()) {
-                proc.kill();
-                log_line(log, "порт занят чужим процессом");
-                return LaunchEnd::Busy;
-            }
-            log_line(log, "сервер отвечает");
+        if tinybots_log::health_accepted(with_token, without) && !spawn::other_process_owns_port(proc.pid()) {
+            log_ready(log, "health", started);
             return LaunchEnd::Ready;
         }
         if without == Some(200) {
             proc.kill();
             log_line(log, "порт занят чужим процессом");
             return LaunchEnd::Busy;
+        }
+        if !noted_timeout && started.elapsed() >= WAIT_LIMIT {
+            noted_timeout = true;
+            log_line(log, "таймаут 15 с");
+            note_failure(app, token, "Сервер не ответил за 15 с", log_path);
+            navigate(app, "server-failed.html");
         }
         std::thread::sleep(Duration::from_millis(150));
     }
@@ -302,7 +329,7 @@ fn supervise(app: tauri::AppHandle, token: String, stop: Arc<AtomicBool>) {
         .map(|guard| guard.path().display().to_string())
         .unwrap_or_else(|| tinybots_log::log_dir().join("launch.log").display().to_string());
     log_line(&log, "старт");
-    let end = run_sidecar(&app, &token, &stop, &log);
+    let end = run_sidecar(&app, &token, &stop, &log, &log_path);
     if let Ok(mut guard) = log.lock() {
         guard.finish();
     }
