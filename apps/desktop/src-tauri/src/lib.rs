@@ -230,16 +230,16 @@ fn stop_sidecar(app: &tauri::AppHandle) {
     let Some(state) = app.try_state::<Sidecar>() else {
         return;
     };
-    if let Some(mut child) = state.child.lock().ok().and_then(|mut slot| slot.take()) {
+    let child = state.child.lock().ok().and_then(|mut slot| slot.take());
+    #[cfg(windows)]
+    let job = state.job.lock().ok().and_then(|mut slot| slot.take());
+    drop(state);
+    if let Some(mut child) = child {
         let _ = child.kill();
         let _ = child.wait();
     }
     #[cfg(windows)]
-    {
-        if let Ok(mut job) = state.job.lock() {
-            job.take();
-        }
-    }
+    drop(job);
 }
 
 fn show_page<R: tauri::Runtime>(app: &tauri::AppHandle<R>, page: &str) {
