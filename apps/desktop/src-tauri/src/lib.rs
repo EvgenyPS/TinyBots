@@ -187,6 +187,7 @@ fn log_line(log: &Mutex<tinybots_log::LaunchLog>, text: &str) {
 fn run_sidecar(app: &tauri::AppHandle, token: &str, stop: &Arc<AtomicBool>, log: &Arc<Mutex<tinybots_log::LaunchLog>>) -> LaunchEnd {
     let Some(program) = spawn::program_path() else {
         log_line(log, "sidecar не найден рядом с окном");
+        log_line(log, &format!("рядом: {}", spawn::sibling_names()));
         return LaunchEnd::Failed("Sidecar не найден рядом с окном".into());
     };
     log_line(log, &format!("sidecar: {}", program.display()));

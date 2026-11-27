@@ -141,26 +141,49 @@ impl ProcBody {
 }
 
 pub fn program_path() -> Option<PathBuf> {
-    let name = sidecar_name();
+    let triple = sidecar_name();
+    // NSIS кладёт externalBin рядом с окном уже без суффикса target triple.
+    let plain = format!("tinybots-server{}", std::env::consts::EXE_SUFFIX);
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?.to_path_buf();
-    let beside = dir.join(&name);
-    if beside.is_file() {
-        return Some(beside);
+    for name in [&triple, &plain] {
+        let beside = dir.join(name);
+        if beside.is_file() {
+            return Some(beside);
+        }
     }
     let mut cursor = dir;
     for _ in 0..8 {
-        let in_binaries = cursor.join("binaries").join(&name);
-        if in_binaries.is_file() {
-            return Some(in_binaries);
-        }
-        let nested = cursor.join("src-tauri").join("binaries").join(&name);
-        if nested.is_file() {
-            return Some(nested);
+        for name in [&triple, &plain] {
+            let in_binaries = cursor.join("binaries").join(name);
+            if in_binaries.is_file() {
+                return Some(in_binaries);
+            }
+            let nested = cursor.join("src-tauri").join("binaries").join(name);
+            if nested.is_file() {
+                return Some(nested);
+            }
         }
         cursor = cursor.parent()?.to_path_buf();
     }
     None
+}
+
+pub fn sibling_names() -> String {
+    let Ok(exe) = std::env::current_exe() else {
+        return String::new();
+    };
+    let Some(dir) = exe.parent() else {
+        return String::new();
+    };
+    let mut names = Vec::new();
+    if let Ok(read) = std::fs::read_dir(dir) {
+        for item in read.flatten() {
+            names.push(item.file_name().to_string_lossy().into_owned());
+        }
+    }
+    names.sort();
+    names.join(", ")
 }
 
 pub fn sidecar_cwd() -> PathBuf {
