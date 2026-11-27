@@ -26,9 +26,9 @@ import path from 'node:path'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { serve, type HttpBindings, type ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
-import { logSafe } from './redact.js'
+import { logSafe, rememberSecret } from './redact.js'
 import type { Server } from 'node:http'
-import { BIND_HOST } from './bind.js'
+import { BIND_HOST, DESKTOP_PORT } from './bind.js'
 import { saveBotTools } from './config/bot-tools.js'
 import { describeSetup, saveSetup } from './config/setup.js'
 import { inspectSource } from './config/source-check.js'
@@ -37,7 +37,8 @@ import { FALLBACK_HTML } from './fallback-html.js'
 import { briefStatus, loadBrief } from './briefs/load.js'
 import { readProjectDoc, readProjectTree } from './files/index.js'
 import { readGitSummary } from './git/index.js'
-import { fetchSiteAllowed, requestAllowed } from './guard.js'
+import { fetchSiteAllowedFor, isDesktopHostHeader, requestAllowed, TAURI_ORIGIN } from './guard.js'
+import { sessionTokensMatch } from './session.js'
 import { postBotChat, postBriefSend, readBotChat } from './llm/http.js'
 import { loadLauncher, type LaunchOptions, type LauncherView } from './launcher/view.js'
 import { postDecision, postSync } from './merge/http.js'
@@ -59,6 +60,13 @@ export type AppOptions = LaunchOptions & {
   boundPort?: { current: number }
   /** Только тест: маршрут, который бросает эту строку. В бою не задаётся. */
   testThrow?: string
+  /**
+   * Токен сессии десктопа. Есть строка — любой /api без неё отвечает 401.
+   * Нет поля — браузерный режим и тесты, как раньше.
+   */
+  sessionToken?: string
+  /** Host только 127.0.0.1:8787 и localhost:8787. Включает sidecar. */
+  desktopHost?: boolean
 }
 
 function hostFromContext(c: { req: { header: (name: string) => string | undefined }; env: HttpBindings }): string | undefined {
@@ -174,27 +182,61 @@ export function createApp(options?: AppOptions): Hono<{ Bindings: HttpBindings }
     const host = hostFromContext(c)
     const origin = c.req.header('origin')
     const pathname = new URL(c.req.url).pathname
+    const desktop = options?.desktopHost === true
+    const sessionToken = options?.sessionToken
+    const allowed = (requestHost: string | undefined, requestOrigin: string | undefined): boolean => {
+      if (desktop && !isDesktopHostHeader(requestHost)) {
+        return false
+      }
+      return requestAllowed(requestHost, requestOrigin, boundPort.current)
+    }
     if (pathname === '/' || isSetupPath(pathname)) {
       c.header('X-Frame-Options', 'DENY')
       c.header('Content-Security-Policy', "frame-ancestors 'none'")
     }
+    // CORS только для точного origin окна. Звёздочку не ставим.
+    if (origin === TAURI_ORIGIN && allowed(host, origin)) {
+      c.header('Access-Control-Allow-Origin', TAURI_ORIGIN)
+      c.header('Vary', 'Origin')
+      c.header('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, X-Tinybots-Session')
+      c.header('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS')
+    }
+    if (c.req.method === 'OPTIONS') {
+      if (origin === TAURI_ORIGIN && allowed(host, origin)) {
+        return c.body(null, 204)
+      }
+      return c.json({ error: 'writes_not_ready' }, 405)
+    }
     // До записи и до GitHub/модели: same-site с другого порта тот же 127.0.0.1 тоже 403.
-    if ((pathname === '/api' || pathname.startsWith('/api/')) && !fetchSiteAllowed(c.req.header('sec-fetch-site'))) {
+    if ((pathname === '/api' || pathname.startsWith('/api/')) && !fetchSiteAllowedFor(c.req.header('sec-fetch-site'), origin)) {
       return c.json({ error: 'forbidden_host' }, 403)
+    }
+    const apiPath = pathname === '/api' || pathname.startsWith('/api/')
+    const sessionOk = (): boolean => {
+      if (sessionToken === undefined || !apiPath) {
+        return true
+      }
+      return sessionTokensMatch(sessionToken, c.req.header('x-tinybots-session'))
     }
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
       if (!isWrite(c.req.method, pathname)) {
         return c.json({ error: 'writes_not_ready' }, 405)
       }
       // Порт проверяет тот же requestAllowed, что и чтение. Без Origin запись не пускаем.
-      if (!writeOriginPresent(origin) || !requestAllowed(host, origin, boundPort.current)) {
+      if (!writeOriginPresent(origin) || !allowed(host, origin)) {
         return c.json({ error: 'forbidden_host' }, 403)
+      }
+      if (!sessionOk()) {
+        return c.json({ error: 'unauthorized' }, 401)
       }
       await next()
       return
     }
-    if (!requestAllowed(host, origin, boundPort.current)) {
+    if (!allowed(host, origin)) {
       return c.json({ error: 'forbidden_host' }, 403)
+    }
+    if (!sessionOk()) {
+      return c.json({ error: 'unauthorized' }, 401)
     }
     await next()
   })
@@ -503,8 +545,14 @@ export async function startServer(options?: { port?: number } & AppOptions): Pro
     // Восстановление не должно ронять пульт: битый json пропускается внутри.
   }
   const boundPort = options?.boundPort ?? { current: 0 }
+  if (options?.sessionToken !== undefined) {
+    rememberSecret(options.sessionToken)
+  }
+  if (options?.desktopHost === true && (options.port ?? DESKTOP_PORT) !== DESKTOP_PORT) {
+    throw new Error('Десктоп слушает только порт 8787')
+  }
   const app = createApp({ ...options, boundPort })
-  const port = options?.port ?? 8787
+  const port = options?.port ?? DESKTOP_PORT
   const server = asNodeServer(
     serve({
       fetch: app.fetch,

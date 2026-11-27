@@ -8,7 +8,23 @@
  * У записи Origin обязателен, иначе проверка порта у Origin не срабатывает.
  */
 
+import { BIND_HOST, DESKTOP_PORT } from './bind.js'
+
 const LOOPBACK_NAMES = new Set(['127.0.0.1', 'localhost'])
+
+/**
+ * Единственный дополнительный Origin. Без звёздочки и без порта:
+ * окно Tauri на Windows открыто как http://tauri.localhost.
+ */
+export const TAURI_ORIGIN = 'http://tauri.localhost'
+
+export function isDesktopHostHeader(host: string | undefined): boolean {
+  if (host === undefined) {
+    return false
+  }
+  const value = host.trim().toLowerCase()
+  return value === `${BIND_HOST}:${DESKTOP_PORT}` || value === `localhost:${DESKTOP_PORT}`
+}
 
 /** Имя хоста из заголовка Host, без порта. null — заголовок сломан. */
 export function hostnameFromHostHeader(host: string): string | null {
@@ -77,11 +93,15 @@ function isListenPort(port: number): boolean {
 /**
  * Нет Origin — обычный заход в браузере и GET с той же страницы.
  * Есть Origin — только http(s) на loopback и только на порт этого сервера.
+ * Плюс ровно http://tauri.localhost, без порта и без звёздочки.
  * Порт по умолчанию (80/443), если его не написали, — это не наш порт.
  */
 export function originAllowed(origin: string | undefined, port: number): boolean {
   if (!isListenPort(port)) {
     return false
+  }
+  if (origin === TAURI_ORIGIN) {
+    return true
   }
   if (origin === undefined || origin === '') {
     return true
@@ -112,6 +132,21 @@ export function fetchSiteAllowed(header: string | undefined): boolean {
   }
   const value = header.trim().toLowerCase()
   return value.length === 0 || value === 'same-origin' || value === 'none'
+}
+
+/**
+ * same-site и cross-site по-прежнему закрыты.
+ * Исключение одно: страница http://tauri.localhost ходит на 127.0.0.1,
+ * браузер помечает это как cross-site. Origin при этом подделать скриптом нельзя.
+ */
+export function fetchSiteAllowedFor(header: string | undefined, origin: string | undefined): boolean {
+  if (fetchSiteAllowed(header)) {
+    return true
+  }
+  if (origin !== TAURI_ORIGIN || header === undefined) {
+    return false
+  }
+  return header.trim().toLowerCase() === 'cross-site'
 }
 
 export function requestAllowed(host: string | undefined, origin: string | undefined, port: number): boolean {

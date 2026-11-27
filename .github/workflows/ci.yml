@@ -105,3 +105,56 @@ jobs:
         run: npx playwright test e2e/perf
         env:
           TINYBOTS_PERF: '1'
+
+  desktop:
+    name: установщик Tauri (windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: npm ci
+        run: npm ci
+      - name: sidecar и страница
+        run: node scripts/prepare-desktop.mjs
+      - name: keyring из SEA
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem apps/desktop/src-tauri/binaries/tinybots-server-*.exe | Select-Object -First 1
+          if (-not $exe) { throw 'sidecar не собран' }
+          & $exe.FullName --keyring-selftest 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\keyring-selftest.txt"
+          Write-Host "KEYRING_SELFTEST_EXIT $LASTEXITCODE"
+          $text = Get-Content "$env:RUNNER_TEMP\keyring-selftest.txt" -Raw
+          if ($text -match 'KEYRING_SEA_OK') { Write-Host 'KEYRING_SEA_OK' }
+          if ($text -match 'KEYRING_SEA_FAIL load|KEYRING_LOAD_FAIL|KEYRING_SEA_FAIL missing') {
+            Write-Host 'KEYRING_LOAD_BLOCKED'
+          }
+      - name: установщик NSIS
+        working-directory: apps/desktop
+        run: npx tauri build
+      - name: размер установщика
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem -Recurse apps/desktop/src-tauri/target/release/bundle -Filter *setup*.exe | Select-Object -First 1
+          if (-not $file) { throw 'установщик не найден' }
+          Write-Host "INSTALLER_PATH $($file.FullName)"
+          Write-Host "INSTALLER_BYTES $($file.Length)"
+          $dest = Join-Path $env:RUNNER_TEMP 'tinybots-installed'
+          $proc = Start-Process -FilePath $file.FullName -ArgumentList "/S", "/D=$dest" -Wait -PassThru
+          Write-Host "INSTALL_EXIT $($proc.ExitCode)"
+          if (Test-Path $dest) {
+            $sum = (Get-ChildItem -Recurse -File $dest | Measure-Object Length -Sum).Sum
+            Write-Host "INSTALLED_BYTES $sum"
+            Get-ChildItem $dest | ForEach-Object { Write-Host "INSTALLED_TOP $($_.Name)" }
+          } else {
+            Write-Host 'INSTALLED_DIR_MISSING'
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tinybots-windows-setup
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
