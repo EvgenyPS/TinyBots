@@ -31,6 +31,7 @@ Thumbs.db
 # Сборка окна Tauri и sidecar. Иконка apps/desktop/icons/app.ico в git остаётся.
 apps/desktop/src-tauri/target/
 apps/desktop/nav/target/
+apps/desktop/log/target/
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/sea/
 apps/desktop/src-tauri/binaries/*

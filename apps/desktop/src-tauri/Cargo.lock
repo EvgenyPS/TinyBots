@@ -3967,9 +3967,14 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tinybots-log",
  "tinybots-nav",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "tinybots-log"
+version = "0.3.3"
 
 [[package]]
 name = "tinybots-nav"

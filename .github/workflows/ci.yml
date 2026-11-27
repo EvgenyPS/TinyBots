@@ -119,6 +119,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
       - name: навигация окна
         run: cargo test --manifest-path apps/desktop/nav/Cargo.toml
+      - name: журнал запуска без токена
+        run: cargo test --manifest-path apps/desktop/log/Cargo.toml
       - name: npm ci
         run: npm ci
       - name: sidecar и страница
@@ -155,6 +157,62 @@ jobs:
           } else {
             Write-Host 'INSTALLED_DIR_MISSING'
           }
+      - name: smoke установленного окна
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'tinybots-installed'
+          $exe = Join-Path $dest 'tinybots-desktop.exe'
+          if (-not (Test-Path $exe)) {
+            $exe = Get-ChildItem $dest -Filter *.exe | Where-Object { $_.Name -notmatch 'setup|uninstall|server' } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $exe -or -not (Test-Path $exe)) {
+            Get-ChildItem $dest -Recurse -File | ForEach-Object { Write-Host "INSTALLED_FILE $($_.FullName)" }
+            throw 'tinybots-desktop.exe не найден после установки'
+          }
+          Write-Host "SMOKE_EXE $exe"
+          $busy = netstat -ano -p tcp | Select-String '127.0.0.1:8787'
+          if ($busy) { throw "порт 8787 занят до smoke: $busy" }
+          $proc = Start-Process -FilePath $exe -PassThru
+          Write-Host "SMOKE_PID $($proc.Id)"
+          $opened = $false
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $resp = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8787/api/bots' -TimeoutSec 2
+              Write-Host "SMOKE_STATUS $($resp.StatusCode)"
+            } catch {
+              $code = $null
+              if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+              Write-Host "SMOKE_STATUS $code"
+              if ($code -eq 401) { $opened = $true; break }
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          $logDir = Join-Path $env:LOCALAPPDATA 'app.tinybots.desktop\logs'
+          if (Test-Path $logDir) {
+            Get-ChildItem $logDir -File | ForEach-Object {
+              Write-Host "SMOKE_LOG $($_.Name) $($_.Length)"
+              Get-Content $_.FullName -Tail 40 | ForEach-Object {
+                $safe = $_ -replace '[0-9a-f]{64}', '[secret]'
+                Write-Host "SMOKE_LOG_LINE $safe"
+              }
+            }
+          } else {
+            Write-Host 'SMOKE_LOG_MISSING'
+          }
+          Get-CimInstance Win32_Process -Filter "ParentProcessId=$($proc.Id)" -ErrorAction SilentlyContinue | ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like 'tinybots*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not $opened) {
+            throw 'за 30 с порт 8787 не ответил 401 без токена. На раннере окно может быть невидимым: sidecar всё равно должен подняться, потому что его запуск не ждёт WebView2.'
+          }
+          $chunks = @(Get-ChildItem $logDir -File -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Raw })
+          $joined = $chunks -join "`n"
+          if ($joined -match '[0-9a-f]{64}') { throw 'в журнале запуска оказалась 64-символьная hex-строка' }
+          if ($joined -notmatch 'sidecar:') { throw 'журнал не содержит путь sidecar' }
+          Write-Host 'SMOKE_OK'
       - uses: actions/upload-artifact@v4
         with:
           name: tinybots-windows-setup
